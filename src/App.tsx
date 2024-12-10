@@ -1,54 +1,91 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import io, { Socket } from "socket.io-client";
 
 const App = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const socketRef = useRef<typeof Socket | null>(null);
+  const [videoSrc, setVideoSrc] = useState<string>("");
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
-    // Kết nối WebSocket
-    socketRef.current = io("http://localhost:8080", {
-      query: { roomId: "room1" }, // Kết nối với room tương ứng
+    if (!videoRef.current) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const paramsObject: { [key: string]: string } = {};
+    params.forEach((value, key) => {
+      paramsObject[key] = value;
     });
-    // full screen
-    // videoRef.current?.requestFullscreen();
 
-    // Lắng nghe các lệnh từ WebSocket
-    socketRef.current.on("command", (payload: any) => {
-      console.log("Command received:", payload);
+    socketRef.current = io(import.meta.env.VITE_SOCKET_URL, {
+      query: { roomId: paramsObject.roomId },
+    });
 
-      switch (payload.action) {
-        case "play":
-          videoRef.current?.play();
-          break;
-        case "pause":
-          videoRef.current?.pause();
-          break;
-        case "seek":
-          if (videoRef.current) {
-            videoRef.current.currentTime = payload.data || 0;
-          }
-          break;
-        default:
-          console.log("Unknown action:", payload.action);
+    socketRef.current.on(
+      "play_song",
+      (payload: { url: string; timestamp: number }) => {
+        setVideoSrc(payload.url);
+        setIsPlaying(true);
+        videoRef.current?.play();
+
+        if (videoRef.current) {
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current!.currentTime = payload.timestamp;
+          };
+        }
+      }
+    );
+
+    socketRef.current.on("pause_song", () => {
+      if (videoRef.current) {
+        videoRef.current.pause();
+        setIsPlaying(false);
       }
     });
 
-    // Dọn dẹp khi component bị unmount
+    socketRef.current.on("resume_song", () => {
+      if (videoRef.current) {
+        videoRef.current.play().catch((error) => {
+          console.log("Playback failed:", error);
+        });
+        setIsPlaying(true);
+      }
+    });
+
     return () => {
       socketRef.current?.disconnect();
     };
   }, []);
 
+  // Lắng nghe sự kiện click trên document
+  useEffect(() => {
+    const handleClick = () => {
+      if (videoRef.current && isPlaying) {
+        videoRef.current.play().catch((error) => {
+          console.log("Playback failed:", error);
+        });
+      }
+    };
+
+    document.addEventListener("click", handleClick);
+
+    return () => {
+      document.removeEventListener("click", handleClick);
+    };
+  }, [isPlaying]);
+
   return (
-    <video
-      ref={videoRef}
-      controls={false}
-      style={{ width: "100%", height: "auto" }}
-      src="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4" // Thay thế bằng URL video của bạn
-    >
-      Your browser does not support the video tag.
-    </video>
+    <div className="flex flex-col items-center">
+      <video
+        ref={videoRef}
+        controls={false}
+        className="w-full h-auto"
+        src={videoSrc}
+      >
+        Your browser does not support the video tag.
+      </video>
+    </div>
   );
 };
 
