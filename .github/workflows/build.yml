@@ -6,6 +6,10 @@ on:
       - main
       - develop
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     name: Build, Push Docker Image, and Deploy

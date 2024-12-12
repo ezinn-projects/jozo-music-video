@@ -28,7 +28,7 @@ WORKDIR /app
 RUN npm install -g serve
 
 # Sao chép file build từ giai đoạn trước
-COPY --from=build /app/build /app/build
+COPY --from=build /app/dist /app/dist
 
 # Expose port 3001
 EXPOSE 3001
