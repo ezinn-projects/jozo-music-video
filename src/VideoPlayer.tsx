@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef, useState } from "react";
 
 interface YouTubePlayerProps {
@@ -5,7 +6,7 @@ interface YouTubePlayerProps {
   logoSrc?: string; // Đường dẫn logo tùy chọn
 }
 
-const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
+const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId }) => {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);

@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import io, { Socket } from "socket.io-client";
-import HLSPlayer from "./HLSPlayer";
 import YouTubePlayer from "./VideoPlayer";
 
 const App = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // const audioRef = useRef<HTMLAudioElement | null>(null);
   const socketRef = useRef<typeof Socket | null>(null);
-  const [videoSrc, setVideoSrc] = useState<string>("");
+  // const [videoSrc, setVideoSrc] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
@@ -24,7 +23,7 @@ const App = () => {
     socketRef.current.on(
       "play_song",
       (payload: { url: string; timestamp: number }) => {
-        setVideoSrc(payload.url);
+        // setVideoSrc(payload.url);
         setIsPlaying(true);
 
         if (videoRef.current) {
@@ -77,13 +76,13 @@ const App = () => {
     };
   }, [isPlaying]);
 
-  const handleAudioClick = () => {
-    if (videoRef.current && isPlaying) {
-      videoRef.current.play().catch((error) => {
-        console.log("Audio playback failed:", error);
-      });
-    }
-  };
+  // const handleAudioClick = () => {
+  //   if (videoRef.current && isPlaying) {
+  //     videoRef.current.play().catch((error) => {
+  //       console.log("Audio playback failed:", error);
+  //     });
+  //   }
+  // };
 
   return <YouTubePlayer videoId="dLgq4l2K1jc" />;
 };
