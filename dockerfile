@@ -1,37 +1,36 @@
-# Dockerfile
-
-# Sử dụng Node.js phiên bản hiện tại
+# Base image cho build
 FROM node:current-alpine AS build
 
-# Tạo thư mục làm việc trong container
+# Thư mục làm việc trong container
 WORKDIR /app
 
-# Sao chép package.json và package-lock.json vào container
+# Sao chép các file cần thiết
 COPY package.json package-lock.json ./
 
 # Cài đặt dependencies
 RUN npm install --frozen-lockfile
 
-# Sao chép mã nguồn vào container
+# Sao chép toàn bộ mã nguồn vào container
 COPY . .
 
-# Build ứng dụng ReactJS
+# Build ứng dụng Vite
 RUN npm run build
 
-# Sử dụng Node.js để serve ứng dụng
+# Base image cho chạy ứng dụng
 FROM node:current-alpine
 
-# Tạo thư mục làm việc
+# Thư mục làm việc
 WORKDIR /app
 
-# Cài đặt một dependency nhẹ để serve file tĩnh (serve-static)
-RUN npm install -g serve
-
-# Sao chép file build từ giai đoạn trước
+# Sao chép file build và package.json từ giai đoạn build
 COPY --from=build /app/dist /app/dist
+COPY --from=build /app/package.json /app/package.json
 
-# Expose port 3001
+# Cài đặt production dependencies (không cần devDependencies)
+RUN npm install --production
+
+# Mở cổng 4173 (Vite Preview chạy mặc định trên port này)
 EXPOSE 3001
 
-# Command để serve file build ReactJS
-CMD ["serve", "-s", "build", "-l", "3001"]
+# Chạy ứng dụng Vite bằng npm preview
+CMD ["npm", "run", "preview"]
