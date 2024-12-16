@@ -25,6 +25,7 @@ WORKDIR /app
 # Sao chép file build và package.json từ giai đoạn build
 COPY --from=build /app/dist /app/dist
 COPY --from=build /app/package.json /app/package.json
+COPY --from=build /app/node_modules /app/node_modules
 
 # Cài đặt production dependencies (không cần devDependencies)
 RUN npm install --production
@@ -33,4 +34,5 @@ RUN npm install --production
 EXPOSE 3001
 
 # Chạy ứng dụng Vite bằng npm preview
-CMD ["npm", "run", "preview"]
+CMD ["npm", "run", "preview", "--", "--port=3001"]
+
