@@ -31,4 +31,5 @@ COPY --from=build /app/node_modules /app/node_modules
 EXPOSE 3001
 
 # Chạy ứng dụng Vite bằng npm preview
-CMD ["npm", "run", "preview", "--", "--port=3001"]
+CMD ["npm", "run", "preview", "--", "--port=3001", "--host"]
+
