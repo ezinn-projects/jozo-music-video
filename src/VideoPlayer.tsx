@@ -15,10 +15,9 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
 
   useEffect(() => {
     // Thêm script YouTube API
-    const tag = document.createElement("script");
-    tag.src = "https://www.youtube.com/iframe_api";
-    const firstScriptTag = document.getElementsByTagName("script")[0];
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    const script = document.createElement("script");
+    script.src = "https://www.youtube.com/iframe_api";
+    document.body.appendChild(script);
 
     // Khi API sẵn sàng, khởi tạo player
     (window as any).onYouTubeIframeAPIReady = () => {
@@ -29,33 +28,27 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
           controls: 0, // Ẩn điều khiển
           modestbranding: 1, // Ẩn logo nhỏ
           rel: 0, // Không hiển thị video liên quan
-          fs: 1, // Bật toàn màn hình
-          iv_load_policy: 3, // Ẩn chú thích
-          enablejsapi: 1, // API JS cho phép điều khiển
-          origin: window.location.origin, // Nguồn hợp lệ
+          mute: 1, // Mute video mặc định
         },
         events: {
           onReady: (event: any) => {
+            // Tự động phát video
             event.target.playVideo();
-            enterFullscreen();
-            showOverlay(3); // Che logo trong 3 giây đầu
-            hideYouTubeButtons(); // Ẩn nút "Xem sau" và "Chia sẻ"
-          },
-          onStateChange: (event: any) => {
-            const YT = (window as any).YT.PlayerState;
-            if (event.data === YT.PAUSED) {
-              setIsPaused(true);
-              showOverlay();
-            } else if (event.data === YT.PLAYING) {
-              setIsPaused(false);
-              hideOverlay();
-            }
+
+            // Thử unmute sau 0.5 giây
+            setTimeout(() => {
+              try {
+                event.target.unMute(); // Bật âm thanh
+                console.log("Unmute video sau 0.5 giây");
+              } catch (error) {
+                console.error("Unmute bị chặn bởi trình duyệt:", error);
+              }
+            }, 500);
           },
         },
       });
     };
 
-    // Cleanup khi component unmount
     return () => {
       if (playerRef.current) {
         playerRef.current.destroy();
