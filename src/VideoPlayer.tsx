@@ -1,17 +1,47 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef, useState } from "react";
+import io, { Socket } from "socket.io-client";
 
 interface YouTubePlayerProps {
   videoId: string;
-  logoSrc?: string; // Đường dẫn logo tùy chọn
+  logoSrc?: string;
 }
 
 const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
+  // const overlayRef = useRef<HTMLDivElement>(null);
   const [isPaused, setIsPaused] = useState(true);
-  const [timeRemaining, setTimeRemaining] = useState<number>(630); // 10 phút 30 giây = 630 giây
+  const [timeRemaining, setTimeRemaining] = useState<number>(630);
+  const [socket, setSocket] = useState<typeof Socket | null>(null);
+
+  useEffect(() => {
+    // Kết nối WebSocket
+    const socketInstance = io(process.env.VITE_SOCKET_URL || "");
+    setSocket(socketInstance);
+
+    // Lắng nghe sự kiện từ server
+    socketInstance.on("video_event", (data) => {
+      if (playerRef.current) {
+        switch (data.event) {
+          case "play":
+            playerRef.current.seekTo(data.current_time, true);
+            playerRef.current.playVideo();
+            break;
+          case "pause":
+            playerRef.current.pauseVideo();
+            break;
+          case "seek":
+            playerRef.current.seekTo(data.current_time, true);
+            break;
+        }
+      }
+    });
+
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     // Thêm script YouTube API
@@ -20,74 +50,64 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
     const firstScriptTag = document.getElementsByTagName("script")[0];
     firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
 
-    // Khi API sẵn sàng, khởi tạo player
     (window as any).onYouTubeIframeAPIReady = () => {
       playerRef.current = new (window as any).YT.Player("youtube-player", {
         videoId: videoId,
         playerVars: {
-          autoplay: 1, // Tự động phát
-          controls: 0, // Ẩn điều khiển
-          modestbranding: 1, // Ẩn logo nhỏ
-          rel: 0, // Không hiển thị video liên quan
-          fs: 1, // Bật toàn màn hình
-          iv_load_policy: 3, // Ẩn chú thích
-          enablejsapi: 1, // API JS cho phép điều khiển
-          origin: window.location.origin, // Nguồn hợp lệ
+          autoplay: 1,
+          controls: 0,
+          modestbranding: 1,
+          rel: 0,
+          fs: 1,
+          iv_load_policy: 3,
+          enablejsapi: 1,
+          origin: window.location.origin,
         },
         events: {
           onReady: (event: any) => {
             event.target.playVideo();
-            enterFullscreen();
-            showOverlay(3); // Che logo trong 3 giây đầu
-            hideYouTubeButtons(); // Ẩn nút "Xem sau" và "Chia sẻ"
-            // Thử unmute sau 0.5 giây
-            setTimeout(() => {
-              try {
-                event.target.unMute(); // Bật âm thanh
-                console.log("Unmute video sau 0.5 giây");
-              } catch (error) {
-                console.error("Unmute bị chặn bởi trình duyệt:", error);
-              }
-            }, 500);
+            hideYouTubeButtons();
           },
-          onStateChange: (event: any) => {
-            const YT = (window as any).YT.PlayerState;
-            if (event.data === YT.PAUSED) {
-              setIsPaused(true);
-              showOverlay();
-            } else if (event.data === YT.PLAYING) {
-              setIsPaused(false);
-              hideOverlay();
-            }
-          },
+          onStateChange: (event: any) => handleStateChange(event),
         },
       });
     };
 
-    // Cleanup khi component unmount
-    return () => {
-      if (playerRef.current) {
-        playerRef.current.destroy();
-      }
-    };
-  }, [videoId]);
-
-  useEffect(() => {
     const timer = setInterval(() => {
       setTimeRemaining((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [videoId]);
 
-  const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = seconds % 60;
+  const handleStateChange = (event: any) => {
+    const YT = (window as any).YT.PlayerState;
+    if (!playerRef.current || !socket) return;
 
-    return `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
+    if (event.data === YT.PLAYING) {
+      setIsPaused(false);
+      socket.emit("video_event", {
+        event: "play",
+        video_id: videoId,
+        current_time: playerRef.current.getCurrentTime(),
+        timestamp: Date.now(),
+      });
+    } else if (event.data === YT.PAUSED) {
+      setIsPaused(true);
+      socket.emit("video_event", {
+        event: "pause",
+        video_id: videoId,
+        current_time: playerRef.current.getCurrentTime(),
+        timestamp: Date.now(),
+      });
+    } else if (event.data === YT.SEEKED) {
+      socket.emit("video_event", {
+        event: "seek",
+        video_id: videoId,
+        current_time: playerRef.current.getCurrentTime(),
+        timestamp: Date.now(),
+      });
+    }
   };
 
   const hideYouTubeButtons = () => {
@@ -103,44 +123,20 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
           buttons.forEach((button) => {
             (button as HTMLElement).style.display = "none";
           });
-          clearInterval(interval); // Dừng interval sau khi ẩn xong
+          clearInterval(interval);
         }
       }
     }, 500);
   };
 
-  const showOverlay = (timeout = 0) => {
-    const overlay = overlayRef.current;
-    if (overlay) {
-      overlay.style.display = "flex";
-      if (timeout > 0) {
-        setTimeout(() => {
-          overlay.style.display = "none";
-        }, timeout * 1000);
-      }
-    }
-  };
+  const formatTime = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
 
-  const hideOverlay = () => {
-    const overlay = overlayRef.current;
-    if (overlay) {
-      overlay.style.display = "none";
-    }
-  };
-
-  const enterFullscreen = () => {
-    const container = containerRef.current;
-    if (container) {
-      if (container.requestFullscreen) {
-        container.requestFullscreen();
-      } else if ((container as any).mozRequestFullScreen) {
-        (container as any).mozRequestFullScreen();
-      } else if ((container as any).webkitRequestFullscreen) {
-        (container as any).webkitRequestFullscreen();
-      } else if ((container as any).msRequestFullscreen) {
-        (container as any).msRequestFullscreen();
-      }
-    }
+    return `${hours.toString().padStart(2, "0")}:${minutes
+      .toString()
+      .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
 
   return (
@@ -151,6 +147,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
       {/* IFrame YouTube */}
       <div id="youtube-player" style={{ width: "100%", height: "100%" }}></div>
 
+      {/* Hiển thị thời gian */}
       <div
         className="absolute top-[14px] right-[15px]"
         style={{
@@ -159,16 +156,6 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
           overflow: "hidden",
         }}
       >
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "white",
-          }}
-        />
         <div
           style={{
             position: "absolute",
@@ -185,33 +172,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
         </div>
       </div>
 
-      {/* Lớp phủ che logo và tên video */}
-      <div
-        ref={overlayRef}
-        style={{
-          display: "none", // Mặc định ẩn lớp phủ
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          backgroundColor: "rgba(0, 0, 0, 0.5)", // Che nền mờ
-          zIndex: 10,
-          pointerEvents: "none", // Không chặn thao tác video
-          justifyContent: "center",
-          alignItems: "center",
-          flexDirection: "column",
-        }}
-      ></div>
-
-      <div
-        className="absolute bottom-[15px] right-[15px] bg-white"
-        style={{
-          width: "110px",
-          height: "40px",
-        }}
-      />
-
+      {/* Overlay khi video pause */}
       {isPaused && (
         <div
           className="absolute top-[50%] left-[50%] rounded-md translate-x-[-50%] translate-y-[-50%] bg-white"
@@ -222,7 +183,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
         />
       )}
 
-      {/* Logo hoặc thành phần khác (nếu cần) */}
+      {/* Logo */}
       {logoSrc && (
         <div
           style={{
