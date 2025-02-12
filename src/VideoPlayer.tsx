@@ -32,8 +32,17 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId }) => {
           iv_load_policy: 3, // Ẩn chú thích
         },
         events: {
-          onReady: () => {
-            // Tự động fullscreen khi video bắt đầu
+          onReady: (event: any) => {
+            // Phát video ở chế độ muted
+            event.target.mute();
+            event.target.playVideo();
+
+            // Bật âm thanh sau 0.5 giây
+            setTimeout(() => {
+              event.target.unMute();
+            }, 500);
+
+            // Tự động fullscreen
             enterFullscreen();
             showOverlay(3); // Che logo trong 3 giây đầu
           },
@@ -123,14 +132,6 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId }) => {
           <p style={{ color: "white", fontSize: "20px" }}>Video Paused</p>
         )}
       </div>
-
-      <div
-        className="absolute bottom-0 right-0 bg-white"
-        style={{
-          width: "110px",
-          height: "40px",
-        }}
-      />
     </div>
   );
 };
