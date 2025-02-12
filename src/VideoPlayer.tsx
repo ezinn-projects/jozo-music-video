@@ -1,16 +1,47 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef, useState } from "react";
+import io, { Socket } from "socket.io-client";
 
 interface YouTubePlayerProps {
   videoId: string;
-  logoSrc?: string; // Đường dẫn logo tùy chọn
+  logoSrc?: string;
 }
 
-const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId }) => {
+const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const [isPaused, setIsPaused] = useState(false);
+  // const overlayRef = useRef<HTMLDivElement>(null);
+  const [isPaused, setIsPaused] = useState(true);
+  const [timeRemaining, setTimeRemaining] = useState<number>(630);
+  const [socket, setSocket] = useState<typeof Socket | null>(null);
+
+  useEffect(() => {
+    // Kết nối WebSocket
+    const socketInstance = io(process.env.VITE_SOCKET_URL || "");
+    setSocket(socketInstance);
+
+    // Lắng nghe sự kiện từ server
+    socketInstance.on("video_event", (data) => {
+      if (playerRef.current) {
+        switch (data.event) {
+          case "play":
+            playerRef.current.seekTo(data.current_time, true);
+            playerRef.current.playVideo();
+            break;
+          case "pause":
+            playerRef.current.pauseVideo();
+            break;
+          case "seek":
+            playerRef.current.seekTo(data.current_time, true);
+            break;
+        }
+      }
+    });
+
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     // Thêm script YouTube API
@@ -19,88 +50,94 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId }) => {
     const firstScriptTag = document.getElementsByTagName("script")[0];
     firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
 
-    // Khi API sẵn sàng, khởi tạo player
     (window as any).onYouTubeIframeAPIReady = () => {
       playerRef.current = new (window as any).YT.Player("youtube-player", {
         videoId: videoId,
         playerVars: {
-          autoplay: 1, // Tự động phát
-          controls: 0, // Ẩn điều khiển
-          modestbranding: 1, // Ẩn logo nhỏ
-          rel: 0, // Không hiển thị video liên quan
-          fs: 1, // Bật toàn màn hình
-          iv_load_policy: 3, // Ẩn chú thích
+          autoplay: 1,
+          controls: 0,
+          modestbranding: 1,
+          rel: 0,
+          fs: 1,
+          iv_load_policy: 3,
+          enablejsapi: 1,
+          origin: window.location.origin,
         },
         events: {
           onReady: (event: any) => {
-            // Phát video ở chế độ muted
-            event.target.mute();
             event.target.playVideo();
-
-            // Bật âm thanh sau 0.5 giây
-            setTimeout(() => {
-              event.target.unMute();
-            }, 500);
-
-            // Tự động fullscreen
-            enterFullscreen();
-            showOverlay(3); // Che logo trong 3 giây đầu
+            hideYouTubeButtons();
           },
-          onStateChange: (event: any) => {
-            const YT = (window as any).YT.PlayerState;
-            if (event.data === YT.PAUSED) {
-              setIsPaused(true);
-              showOverlay();
-            } else if (event.data === YT.PLAYING) {
-              setIsPaused(false);
-              hideOverlay();
-            }
-          },
+          onStateChange: (event: any) => handleStateChange(event),
         },
       });
     };
 
-    const showOverlay = (timeout = 0) => {
-      const overlay = overlayRef.current;
-      if (overlay) {
-        overlay.style.display = "flex";
-        if (timeout > 0) {
-          setTimeout(() => {
-            overlay.style.display = "none";
-          }, timeout * 1000);
-        }
-      }
-    };
+    const timer = setInterval(() => {
+      setTimeRemaining((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
 
-    const hideOverlay = () => {
-      const overlay = overlayRef.current;
-      if (overlay) {
-        overlay.style.display = "none";
-      }
-    };
-
-    const enterFullscreen = () => {
-      const container = containerRef.current;
-      if (container) {
-        if (container.requestFullscreen) {
-          container.requestFullscreen();
-        } else if ((container as any).mozRequestFullScreen) {
-          (container as any).mozRequestFullScreen();
-        } else if ((container as any).webkitRequestFullscreen) {
-          (container as any).webkitRequestFullscreen();
-        } else if ((container as any).msRequestFullscreen) {
-          (container as any).msRequestFullscreen();
-        }
-      }
-    };
-
-    // Cleanup khi component unmount
-    return () => {
-      if (playerRef.current) {
-        playerRef.current.destroy();
-      }
-    };
+    return () => clearInterval(timer);
   }, [videoId]);
+
+  const handleStateChange = (event: any) => {
+    const YT = (window as any).YT.PlayerState;
+    if (!playerRef.current || !socket) return;
+
+    if (event.data === YT.PLAYING) {
+      setIsPaused(false);
+      socket.emit("video_event", {
+        event: "play",
+        video_id: videoId,
+        current_time: playerRef.current.getCurrentTime(),
+        timestamp: Date.now(),
+      });
+    } else if (event.data === YT.PAUSED) {
+      setIsPaused(true);
+      socket.emit("video_event", {
+        event: "pause",
+        video_id: videoId,
+        current_time: playerRef.current.getCurrentTime(),
+        timestamp: Date.now(),
+      });
+    } else if (event.data === YT.SEEKED) {
+      socket.emit("video_event", {
+        event: "seek",
+        video_id: videoId,
+        current_time: playerRef.current.getCurrentTime(),
+        timestamp: Date.now(),
+      });
+    }
+  };
+
+  const hideYouTubeButtons = () => {
+    const interval = setInterval(() => {
+      const iframe = document.querySelector("iframe");
+      if (iframe) {
+        const iframeDocument =
+          iframe.contentDocument || iframe.contentWindow?.document;
+        if (iframeDocument) {
+          const buttons = iframeDocument.querySelectorAll(
+            ".ytp-watch-later-button, .ytp-share-button"
+          );
+          buttons.forEach((button) => {
+            (button as HTMLElement).style.display = "none";
+          });
+          clearInterval(interval);
+        }
+      }
+    }, 500);
+  };
+
+  const formatTime = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+
+    return `${hours.toString().padStart(2, "0")}:${minutes
+      .toString()
+      .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
+  };
 
   return (
     <div
@@ -110,28 +147,55 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId }) => {
       {/* IFrame YouTube */}
       <div id="youtube-player" style={{ width: "100%", height: "100%" }}></div>
 
-      {/* Lớp phủ che logo và tên video */}
+      {/* Hiển thị thời gian */}
       <div
-        ref={overlayRef}
+        className="absolute top-[14px] right-[15px]"
         style={{
-          display: "none", // Mặc định ẩn lớp phủ
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          backgroundColor: "rgba(0, 0, 0, 0.5)", // Che nền mờ
-          zIndex: 10,
-          pointerEvents: "none", // Không chặn thao tác video
-          justifyContent: "center",
-          alignItems: "center",
-          flexDirection: "column",
+          width: "135px",
+          height: "45px",
+          overflow: "hidden",
         }}
       >
-        {isPaused && (
-          <p style={{ color: "white", fontSize: "20px" }}>Video Paused</p>
-        )}
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            zIndex: 1,
+            color: "black",
+            fontSize: "16px",
+            fontWeight: "bold",
+          }}
+        >
+          {formatTime(timeRemaining)}
+        </div>
       </div>
+
+      {/* Overlay khi video pause */}
+      {isPaused && (
+        <div
+          className="absolute top-[50%] left-[50%] rounded-md translate-x-[-50%] translate-y-[-50%] bg-white"
+          style={{
+            width: "68px",
+            height: "50px",
+          }}
+        />
+      )}
+
+      {/* Logo */}
+      {logoSrc && (
+        <div
+          style={{
+            position: "absolute",
+            top: "10px",
+            left: "10px",
+            zIndex: 20,
+          }}
+        >
+          <img src={logoSrc} alt="Logo" style={{ width: "100px" }} />
+        </div>
+      )}
     </div>
   );
 };
