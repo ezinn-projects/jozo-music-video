@@ -5,6 +5,14 @@ import io, { Socket } from "socket.io-client";
 interface YouTubePlayerProps {
   videoId: string;
   logoSrc?: string;
+  currentTime: number;
+  initialTime: number;
+  songInfo: {
+    title: string;
+    author: string;
+    thumbnail: string;
+    duration: number;
+  };
 }
 
 const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
@@ -15,9 +23,41 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
   const [timeRemaining, setTimeRemaining] = useState<number>(630);
   const [socket, setSocket] = useState<typeof Socket | null>(null);
 
+  // Add function to get room ID from URL
+  const getRoomId = () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get("roomId");
+  };
+
+  // Add function to update now playing
+  const updateNowPlaying = async () => {
+    const roomId = getRoomId();
+    if (!roomId) return;
+
+    try {
+      const response = await fetch(`/${roomId}/now-playing`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          videoId,
+          currentTime: playerRef.current?.getCurrentTime() || 0,
+          isPaused,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to update now playing status");
+      }
+    } catch (error) {
+      console.error("Error updating now playing status:", error);
+    }
+  };
+
   useEffect(() => {
     // Kết nối WebSocket
-    const socketInstance = io(process.env.VITE_SOCKET_URL || "");
+    const socketInstance = io(import.meta.env.VITE_SOCKET_URL || "");
     setSocket(socketInstance);
 
     // Lắng nghe sự kiện từ server
@@ -66,7 +106,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
         events: {
           onReady: (event: any) => {
             event.target.playVideo();
-            hideYouTubeButtons();
+            // hideYouTubeButtons();
           },
           onStateChange: (event: any) => handleStateChange(event),
         },
@@ -80,6 +120,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
     return () => clearInterval(timer);
   }, [videoId]);
 
+  // Modify handleStateChange to include now playing updates
   const handleStateChange = (event: any) => {
     const YT = (window as any).YT.PlayerState;
     if (!playerRef.current || !socket) return;
@@ -92,6 +133,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
         current_time: playerRef.current.getCurrentTime(),
         timestamp: Date.now(),
       });
+      updateNowPlaying();
     } else if (event.data === YT.PAUSED) {
       setIsPaused(true);
       socket.emit("video_event", {
@@ -100,6 +142,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
         current_time: playerRef.current.getCurrentTime(),
         timestamp: Date.now(),
       });
+      updateNowPlaying();
     } else if (event.data === YT.SEEKED) {
       socket.emit("video_event", {
         event: "seek",
@@ -107,27 +150,39 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
         current_time: playerRef.current.getCurrentTime(),
         timestamp: Date.now(),
       });
+      updateNowPlaying();
     }
   };
 
-  const hideYouTubeButtons = () => {
+  // Add effect to update now playing periodically
+  useEffect(() => {
     const interval = setInterval(() => {
-      const iframe = document.querySelector("iframe");
-      if (iframe) {
-        const iframeDocument =
-          iframe.contentDocument || iframe.contentWindow?.document;
-        if (iframeDocument) {
-          const buttons = iframeDocument.querySelectorAll(
-            ".ytp-watch-later-button, .ytp-share-button"
-          );
-          buttons.forEach((button) => {
-            (button as HTMLElement).style.display = "none";
-          });
-          clearInterval(interval);
-        }
+      if (playerRef.current && !isPaused) {
+        updateNowPlaying();
       }
-    }, 500);
-  };
+    }, 30000); // Update every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [isPaused]);
+
+  // const hideYouTubeButtons = () => {
+  //   const interval = setInterval(() => {
+  //     const iframe = document.querySelector("iframe");
+  //     if (iframe) {
+  //       const iframeDocument =
+  //         iframe.contentDocument || iframe.contentWindow?.document;
+  //       if (iframeDocument) {
+  //         const buttons = iframeDocument.querySelectorAll(
+  //           ".ytp-watch-later-button, .ytp-share-button"
+  //         );
+  //         buttons.forEach((button) => {
+  //           (button as HTMLElement).style.display = "none";
+  //         });
+  //         clearInterval(interval);
+  //       }
+  //     }
+  //   }, 500);
+  // };
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -184,7 +239,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
       )}
 
       {/* Logo */}
-      {logoSrc && (
+      {isPaused && (
         <div
           style={{
             position: "absolute",
@@ -193,7 +248,11 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
             zIndex: 20,
           }}
         >
-          <img src={logoSrc} alt="Logo" style={{ width: "100px" }} />
+          <img
+            src={logoSrc || "Screenshot_11-removebg-preview.png"}
+            alt="Logo"
+            style={{ width: "100px" }}
+          />
         </div>
       )}
     </div>
