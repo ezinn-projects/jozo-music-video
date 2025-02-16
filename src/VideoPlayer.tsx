@@ -1,67 +1,69 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import io, { Socket } from "socket.io-client";
 
-interface YouTubePlayerProps {
-  videoId: string;
-  logoSrc?: string;
+interface NowPlayingData {
+  video_id: string;
+  title: string;
+  thumbnail: string;
+  author: string;
+  duration: number;
+  timestamp: number;
   currentTime: number;
-  initialTime: number;
-  songInfo: {
-    title: string;
-    author: string;
-    thumbnail: string;
-    duration: number;
-  };
 }
 
-const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
+const YouTubePlayer = () => {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // const overlayRef = useRef<HTMLDivElement>(null);
   const [isPaused, setIsPaused] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState<number>(630);
   const [socket, setSocket] = useState<typeof Socket | null>(null);
-
-  // Add function to get room ID from URL
-  const getRoomId = () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    return urlParams.get("roomId");
-  };
-
-  // Add function to update now playing
-  const updateNowPlaying = async () => {
-    const roomId = getRoomId();
-    if (!roomId) return;
-
-    try {
-      const response = await fetch(`/${roomId}/now-playing`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          videoId,
-          currentTime: playerRef.current?.getCurrentTime() || 0,
-          isPaused,
-        }),
-      });
-
-      if (!response.ok) {
-        console.error("Failed to update now playing status");
-      }
-    } catch (error) {
-      console.error("Error updating now playing status:", error);
-    }
-  };
+  const [params] = useSearchParams();
+  const roomId = params.get("roomId") || "";
+  const [nowPlayingData, setNowPlayingData] = useState<NowPlayingData | null>(
+    null
+  );
 
   useEffect(() => {
-    // Kết nối WebSocket
-    const socketInstance = io(import.meta.env.VITE_SOCKET_URL || "");
+    const socketInstance = io(import.meta.env.VITE_SOCKET_URL || "", {
+      query: { roomId },
+    });
     setSocket(socketInstance);
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, [roomId]);
 
-    // Lắng nghe sự kiện từ server
-    socketInstance.on("video_event", (data) => {
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.emit("get_now_playing", { roomId });
+
+    socket.on("now_playing", (data: NowPlayingData) => {
+      if (data) {
+        console.log("data", data);
+        setNowPlayingData(data);
+        if (playerRef.current) {
+          if (data.video_id !== playerRef.current.getVideoData().video_id) {
+            playerRef.current.loadVideoById({
+              videoId: data.video_id,
+              startSeconds: data.currentTime,
+            });
+          } else {
+            const currentServerTime =
+              data.timestamp + (Date.now() - data.timestamp) / 1000;
+            const targetTime =
+              data.currentTime + (currentServerTime - data.timestamp);
+            playerRef.current.seekTo(targetTime, true);
+            playerRef.current.playVideo();
+          }
+        }
+      }
+    });
+
+    socket.on("video_event", (data: any) => {
       if (playerRef.current) {
         switch (data.event) {
           case "play":
@@ -79,9 +81,10 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
     });
 
     return () => {
-      socketInstance.disconnect();
+      socket.off("now_playing");
+      socket.off("video_event");
     };
-  }, []);
+  }, [socket, roomId, nowPlayingData?.video_id]);
 
   useEffect(() => {
     // Thêm script YouTube API
@@ -92,10 +95,10 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
 
     (window as any).onYouTubeIframeAPIReady = () => {
       playerRef.current = new (window as any).YT.Player("youtube-player", {
-        videoId: videoId,
+        videoId: nowPlayingData?.video_id,
         playerVars: {
           autoplay: 1,
-          controls: 0,
+          controls: 1,
           modestbranding: 1,
           rel: 0,
           fs: 1,
@@ -106,7 +109,20 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
         events: {
           onReady: (event: any) => {
             event.target.playVideo();
-            // hideYouTubeButtons();
+            if (nowPlayingData) {
+              const currentServerTime =
+                nowPlayingData.timestamp +
+                (Date.now() - nowPlayingData.timestamp) / 1000;
+              const targetTime =
+                nowPlayingData.currentTime +
+                (currentServerTime - nowPlayingData.timestamp);
+              event.target.seekTo(targetTime, true);
+            }
+            socket?.emit("video_ready", {
+              roomId: roomId,
+              videoId: nowPlayingData?.video_id,
+            });
+            setIsPaused(false);
           },
           onStateChange: (event: any) => handleStateChange(event),
         },
@@ -118,71 +134,21 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [videoId]);
+  }, [nowPlayingData?.video_id, roomId]);
 
-  // Modify handleStateChange to include now playing updates
   const handleStateChange = (event: any) => {
-    const YT = (window as any).YT.PlayerState;
+    // const YT = (window as any).YT.PlayerState;
     if (!playerRef.current || !socket) return;
 
-    if (event.data === YT.PLAYING) {
-      setIsPaused(false);
-      socket.emit("video_event", {
-        event: "play",
-        video_id: videoId,
-        current_time: playerRef.current.getCurrentTime(),
-        timestamp: Date.now(),
-      });
-      updateNowPlaying();
-    } else if (event.data === YT.PAUSED) {
-      setIsPaused(true);
-      socket.emit("video_event", {
-        event: "pause",
-        video_id: videoId,
-        current_time: playerRef.current.getCurrentTime(),
-        timestamp: Date.now(),
-      });
-      updateNowPlaying();
-    } else if (event.data === YT.SEEKED) {
-      socket.emit("video_event", {
-        event: "seek",
-        video_id: videoId,
-        current_time: playerRef.current.getCurrentTime(),
-        timestamp: Date.now(),
-      });
-      updateNowPlaying();
-    }
+    console.log("event", event);
+
+    // if (event.data === YT.PLAYING) {
+    //   setIsPaused(false);
+    // } else if (event.data === YT.PAUSED) {
+    //   setIsPaused(true);
+    // } else if (event.data === YT.SEEKED) {
+    // }
   };
-
-  // Add effect to update now playing periodically
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (playerRef.current && !isPaused) {
-        updateNowPlaying();
-      }
-    }, 30000); // Update every 30 seconds
-
-    return () => clearInterval(interval);
-  }, [isPaused]);
-
-  // const hideYouTubeButtons = () => {
-  //   const interval = setInterval(() => {
-  //     const iframe = document.querySelector("iframe");
-  //     if (iframe) {
-  //       const iframeDocument =
-  //         iframe.contentDocument || iframe.contentWindow?.document;
-  //       if (iframeDocument) {
-  //         const buttons = iframeDocument.querySelectorAll(
-  //           ".ytp-watch-later-button, .ytp-share-button"
-  //         );
-  //         buttons.forEach((button) => {
-  //           (button as HTMLElement).style.display = "none";
-  //         });
-  //         clearInterval(interval);
-  //       }
-  //     }
-  //   }, 500);
-  // };
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -193,6 +159,8 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
       .toString()
       .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
+
+  console.log("nowPlayingData", nowPlayingData);
 
   return (
     <div
@@ -242,18 +210,14 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ videoId, logoSrc }) => {
       {isPaused && (
         <div
           style={{
+            width: "100px",
+            height: "100px",
             position: "absolute",
             top: "10px",
             left: "10px",
             zIndex: 20,
           }}
-        >
-          <img
-            src={logoSrc || "Screenshot_11-removebg-preview.png"}
-            alt="Logo"
-            style={{ width: "100px" }}
-          />
-        </div>
+        />
       )}
     </div>
   );
