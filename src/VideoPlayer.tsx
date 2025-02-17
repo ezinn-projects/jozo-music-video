@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import io, { Socket } from "socket.io-client";
+import { logo } from "./assets";
+import { PlaybackState } from "./constants/enum";
 
 interface NowPlayingData {
   video_id: string;
@@ -18,13 +20,14 @@ const YouTubePlayer = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   // const overlayRef = useRef<HTMLDivElement>(null);
   const [isPaused, setIsPaused] = useState(true);
-  const [timeRemaining, setTimeRemaining] = useState<number>(630);
+  // const [timeRemaining, setTimeRemaining] = useState<number>(630);
   const [socket, setSocket] = useState<typeof Socket | null>(null);
   const [params] = useSearchParams();
   const roomId = params.get("roomId") || "";
   const [nowPlayingData, setNowPlayingData] = useState<NowPlayingData | null>(
     null
   );
+  const [isBuffering, setIsBuffering] = useState(true);
 
   useEffect(() => {
     const socketInstance = io(import.meta.env.VITE_SOCKET_URL || "", {
@@ -51,6 +54,10 @@ const YouTubePlayer = () => {
               videoId: data.video_id,
               startSeconds: data.currentTime,
             });
+            socket.emit("video_ready", {
+              roomId: roomId,
+              videoId: data.video_id,
+            });
           } else {
             const currentServerTime =
               data.timestamp + (Date.now() - data.timestamp) / 1000;
@@ -63,28 +70,37 @@ const YouTubePlayer = () => {
       }
     });
 
+    // Lắng nghe sự kiện video_event từ ControlBar
     socket.on("video_event", (data: any) => {
       if (playerRef.current) {
         switch (data.event) {
-          case "play":
-            playerRef.current.seekTo(data.current_time, true);
+          case PlaybackState.PLAY:
+            playerRef.current.seekTo(data.currentTime, true);
             playerRef.current.playVideo();
+            setIsPaused(false);
             break;
-          case "pause":
+          case PlaybackState.PAUSE:
             playerRef.current.pauseVideo();
+            setIsPaused(true);
             break;
-          case "seek":
-            playerRef.current.seekTo(data.current_time, true);
+          case PlaybackState.SEEK:
+            playerRef.current.seekTo(data.currentTime, true);
             break;
         }
       }
     });
 
+    // Lắng nghe sự kiện next_song
+    socket.on("next_song", () => {
+      socket.emit("get_now_playing", { roomId });
+    });
+
     return () => {
       socket.off("now_playing");
       socket.off("video_event");
+      socket.off("next_song");
     };
-  }, [socket, roomId, nowPlayingData?.video_id]);
+  }, [socket, roomId]);
 
   useEffect(() => {
     // Thêm script YouTube API
@@ -105,9 +121,13 @@ const YouTubePlayer = () => {
           iv_load_policy: 3,
           enablejsapi: 1,
           origin: window.location.origin,
+          disablekb: 1, // Thêm vào để vô hiệu hóa điều khiển bàn phím
+          showinfo: 0, // Thêm vào để ẩn thông tin video
+          vq: "hd1080",
         },
         events: {
           onReady: (event: any) => {
+            event.target.setPlaybackQuality("hd1080");
             event.target.playVideo();
             if (nowPlayingData) {
               const currentServerTime =
@@ -125,42 +145,74 @@ const YouTubePlayer = () => {
             setIsPaused(false);
           },
           onStateChange: (event: any) => handleStateChange(event),
+          onPlaybackQualityChange: (event: any) => {
+            console.log("Quality changed:", event.data);
+          },
         },
       });
     };
 
-    const timer = setInterval(() => {
-      setTimeRemaining((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
+    // const timer = setInterval(() => {
+    //   setTimeRemaining((prev) => (prev > 0 ? prev - 1 : 0));
+    // }, 1000);
 
-    return () => clearInterval(timer);
+    // return () => clearInterval(timer);
   }, [nowPlayingData?.video_id, roomId]);
 
   const handleStateChange = (event: any) => {
-    // const YT = (window as any).YT.PlayerState;
     if (!playerRef.current || !socket) return;
 
-    console.log("event", event);
+    const YT = (window as any).YT.PlayerState;
+    let currentTime;
 
-    // if (event.data === YT.PLAYING) {
-    //   setIsPaused(false);
-    // } else if (event.data === YT.PAUSED) {
-    //   setIsPaused(true);
-    // } else if (event.data === YT.SEEKED) {
-    // }
+    switch (event.data) {
+      case YT.BUFFERING:
+        setIsBuffering(true);
+        break;
+      case YT.PLAYING:
+        setIsBuffering(false);
+        setIsPaused(false);
+        currentTime = playerRef.current.getCurrentTime();
+        socket.emit("sync_time", {
+          roomId,
+          videoId: playerRef.current.getVideoData().video_id,
+          currentTime,
+          timestamp: Date.now(),
+        });
+        break;
+      case YT.PAUSED:
+        setIsPaused(true);
+        break;
+    }
   };
 
-  const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = seconds % 60;
+  useEffect(() => {
+    if (!socket || !playerRef.current || isBuffering || isPaused) return;
 
-    return `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
-  };
+    const syncInterval = setInterval(() => {
+      const currentTime = playerRef.current.getCurrentTime();
+      socket.emit("sync_time", {
+        roomId,
+        videoId: playerRef.current.getVideoData().video_id,
+        currentTime,
+        timestamp: Date.now(),
+      });
+    }, 1000);
 
-  console.log("nowPlayingData", nowPlayingData);
+    return () => clearInterval(syncInterval);
+  }, [socket, isBuffering, isPaused]);
+
+  // const formatTime = (seconds: number): string => {
+  //   const hours = Math.floor(seconds / 3600);
+  //   const minutes = Math.floor((seconds % 3600) / 60);
+  //   const remainingSeconds = seconds % 60;
+
+  //   return `${hours.toString().padStart(2, "0")}:${minutes
+  //     .toString()
+  //     .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
+  // };
+
+  console.log("isPaused", isPaused);
 
   return (
     <div
@@ -170,55 +222,9 @@ const YouTubePlayer = () => {
       {/* IFrame YouTube */}
       <div id="youtube-player" style={{ width: "100%", height: "100%" }}></div>
 
-      {/* Hiển thị thời gian */}
-      <div
-        className="absolute top-[14px] right-[15px]"
-        style={{
-          width: "135px",
-          height: "45px",
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            zIndex: 1,
-            color: "black",
-            fontSize: "16px",
-            fontWeight: "bold",
-          }}
-        >
-          {formatTime(timeRemaining)}
-        </div>
+      <div className="absolute bottom-[15px] right-[15px] w-[110px] h-[42px] bg-black">
+        <img src={logo} alt="logo" className="w-full h-full" />
       </div>
-
-      {/* Overlay khi video pause */}
-      {isPaused && (
-        <div
-          className="absolute top-[50%] left-[50%] rounded-md translate-x-[-50%] translate-y-[-50%] bg-white"
-          style={{
-            width: "68px",
-            height: "50px",
-          }}
-        />
-      )}
-
-      {/* Logo */}
-      {isPaused && (
-        <div
-          style={{
-            width: "100px",
-            height: "100px",
-            position: "absolute",
-            top: "10px",
-            left: "10px",
-            zIndex: 20,
-          }}
-        />
-      )}
     </div>
   );
 };
