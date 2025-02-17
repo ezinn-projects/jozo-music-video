@@ -24,11 +24,29 @@ jobs:
         with:
           node-version: 20
 
+      - name: Set environment file variable
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "ENV_FILE=.env.production" >> $GITHUB_ENV
+          else
+            echo "ENV_FILE=.env.development" >> $GITHUB_ENV
+          fi
+
+      - name: Create environment file
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "${{ secrets.ENV_PRODUCTION }}" > .env.production
+          else
+            echo "${{ secrets.ENV_DEVELOPMENT }}" > .env.development
+          fi
+
       - name: Install dependencies
         run: npm install --frozen-lockfile
 
       - name: Build React app
         run: npm run build
+        env:
+          VITE_APP_PORT: 3001
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
@@ -44,7 +62,11 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/jzo-music-player:latest
+          build-args: |
+            ENV_FILE=${{ env.ENV_FILE }}
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/jzo-music-player:${{ github.ref_name }}
+            ${{ secrets.DOCKER_USERNAME }}/jzo-music-player:latest
 
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v0.1.5
@@ -53,7 +75,19 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           password: ${{ secrets.VPS_PASSWORD }}
           script: |
-            docker pull ${{ secrets.DOCKER_USERNAME }}/jzo-music-player:latest
+            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+              echo "${{ secrets.ENV_PRODUCTION }}" > /tmp/.env.production
+              ENV_FILE="/tmp/.env.production"
+            else
+              echo "${{ secrets.ENV_DEVELOPMENT }}" > /tmp/.env.development
+              ENV_FILE="/tmp/.env.development"
+            fi
+
+            docker pull ${{ secrets.DOCKER_USERNAME }}/jzo-music-player:${{ github.ref_name }}
             docker stop jzo-music-player-container || true
             docker rm jzo-music-player-container || true
-            docker run -d --name jzo-music-player-container -p 3001:3001 ${{ secrets.DOCKER_USERNAME }}/jzo-music-player:latest
+            docker run -d \
+              --name jzo-music-player-container \
+              --env-file $ENV_FILE \
+              -p 3001:3001 \
+              ${{ secrets.DOCKER_USERNAME }}/jzo-music-player:${{ github.ref_name }}
