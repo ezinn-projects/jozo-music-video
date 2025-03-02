@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import io, { Socket } from "socket.io-client";
 import { logo } from "./assets";
 import { PlaybackState } from "./constants/enum";
+import axios from "axios";
 
 interface NowPlayingData {
   video_id: string;
@@ -19,15 +20,29 @@ const YouTubePlayer = () => {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // const overlayRef = useRef<HTMLDivElement>(null);
-  const [isPaused, setIsPaused] = useState(true);
-  // const [timeRemaining, setTimeRemaining] = useState<number>(630);
   const [socket, setSocket] = useState<typeof Socket | null>(null);
   const [params] = useSearchParams();
   const roomId = params.get("roomId") || "";
-  const [nowPlayingData, setNowPlayingData] = useState<NowPlayingData | null>(
-    null
-  );
-  const [isBuffering, setIsBuffering] = useState(true);
+
+  // Gộp các state liên quan đến video hiện tại vào một object
+  const [videoState, setVideoState] = useState({
+    nowPlayingData: null as NowPlayingData | null,
+    currentVideoId: "",
+    isPaused: true,
+    isBuffering: true,
+  });
+
+  // Gộp các state liên quan đến backup vào một object
+  const [backupState, setBackupState] = useState({
+    backupUrl: "",
+    isLoadingBackup: false,
+    backupError: false,
+    backupVideoReady: false,
+    youtubeError: false,
+  });
+
+  console.log("nowPlayingData", videoState.nowPlayingData);
+  console.log("currentVideoId", videoState.currentVideoId);
 
   useEffect(() => {
     const socketInstance = io(import.meta.env.VITE_SOCKET_URL || "", {
@@ -42,33 +57,36 @@ const YouTubePlayer = () => {
   useEffect(() => {
     if (!socket) return;
 
-    socket.emit("get_now_playing", { roomId });
+    const handleNowPlaying = (data: NowPlayingData) => {
+      if (!data?.video_id) return;
 
-    socket.on("now_playing", (data: NowPlayingData) => {
-      if (data) {
-        console.log("data", data);
-        setNowPlayingData(data);
-        if (playerRef.current) {
-          if (data.video_id !== playerRef.current.getVideoData().video_id) {
-            playerRef.current.loadVideoById({
-              videoId: data.video_id,
-              startSeconds: data.currentTime,
-            });
-            socket.emit("video_ready", {
-              roomId: roomId,
-              videoId: data.video_id,
-            });
-          } else {
-            const currentServerTime =
-              data.timestamp + (Date.now() - data.timestamp) / 1000;
-            const targetTime =
-              data.currentTime + (currentServerTime - data.timestamp);
-            playerRef.current.seekTo(targetTime, true);
-            playerRef.current.playVideo();
-          }
-        }
+      // Cập nhật tất cả state liên quan trong một lần
+      setVideoState((prev) => ({
+        ...prev,
+        nowPlayingData: data,
+        currentVideoId: data.video_id,
+        isBuffering: true,
+      }));
+
+      setBackupState((prev) => ({
+        ...prev,
+        backupUrl: "",
+        backupError: false,
+        backupVideoReady: false,
+        isLoadingBackup: false,
+        youtubeError: false,
+      }));
+
+      if (playerRef.current?.getVideoData) {
+        playerRef.current.loadVideoById({
+          videoId: data.video_id,
+          startSeconds: data.currentTime,
+        });
       }
-    });
+    };
+
+    socket.emit("get_now_playing", { roomId });
+    socket.on("now_playing", handleNowPlaying);
 
     // Lắng nghe sự kiện video_event từ ControlBar
     socket.on("video_event", (data: any) => {
@@ -77,11 +95,11 @@ const YouTubePlayer = () => {
           case PlaybackState.PLAY:
             playerRef.current.seekTo(data.currentTime, true);
             playerRef.current.playVideo();
-            setIsPaused(false);
+            setVideoState((prev) => ({ ...prev, isPaused: false }));
             break;
           case PlaybackState.PAUSE:
             playerRef.current.pauseVideo();
-            setIsPaused(true);
+            setVideoState((prev) => ({ ...prev, isPaused: true }));
             break;
           case PlaybackState.SEEK:
             playerRef.current.seekTo(data.currentTime, true);
@@ -95,12 +113,162 @@ const YouTubePlayer = () => {
       socket.emit("get_now_playing", { roomId });
     });
 
+    // Thêm xử lý lỗi cho socket
+    socket.on("connect_error", (error) => {
+      console.error("Socket connection error:", error);
+    });
+
+    socket.on("error", (error) => {
+      console.error("Socket error:", error);
+    });
+
     return () => {
-      socket.off("now_playing");
+      socket.off("now_playing", handleNowPlaying);
       socket.off("video_event");
       socket.off("next_song");
     };
   }, [socket, roomId]);
+
+  const handleStateChange = useCallback(
+    (event: any) => {
+      if (!playerRef.current || !socket) return;
+
+      const YT = (window as any).YT.PlayerState;
+
+      switch (event.data) {
+        case YT.BUFFERING:
+          setVideoState((prev) => ({ ...prev, isBuffering: true }));
+          break;
+        case YT.PLAYING:
+          setVideoState((prev) => ({
+            ...prev,
+            isBuffering: false,
+            isPaused: false,
+          }));
+          if (playerRef.current.getVideoData?.()) {
+            socket.emit("sync_time", {
+              roomId,
+              videoId: playerRef.current.getVideoData().video_id,
+              currentTime: playerRef.current.getCurrentTime(),
+              timestamp: Date.now(),
+            });
+          }
+          break;
+        case YT.PAUSED:
+          setVideoState((prev) => ({ ...prev, isPaused: true }));
+          break;
+      }
+    },
+    [socket, roomId]
+  );
+
+  // Sửa lại handleYouTubeError
+  const handleYouTubeError = useCallback(async () => {
+    // Lấy video ID từ player hoặc state
+    const currentVideoData = playerRef.current?.getVideoData?.();
+    console.log("currentVideoData", currentVideoData);
+    const videoId =
+      currentVideoData?.video_id ||
+      videoState.nowPlayingData?.video_id ||
+      videoState.currentVideoId;
+
+    console.log("videoId", videoId);
+
+    // Log để debug
+    console.log("Current video data:", {
+      fromPlayer: currentVideoData?.video_id,
+      fromNowPlaying: videoState.nowPlayingData?.video_id,
+      fromState: videoState.currentVideoId,
+      finalVideoId: videoId,
+    });
+
+    // Kiểm tra các điều kiện
+    if (backupState.isLoadingBackup || backupState.backupUrl) {
+      console.log("Đang loading hoặc đã có backup URL");
+      return;
+    }
+
+    if (!videoId || videoId.trim() === "") {
+      console.log("Không có video ID hợp lệ");
+      return;
+    }
+
+    try {
+      setBackupState((prev) => ({
+        ...prev,
+        isLoadingBackup: true,
+        backupError: false,
+      }));
+
+      const backupApiUrl = `${
+        import.meta.env.VITE_API_BASE_URL
+      }/room-music/${roomId}/${videoId}`;
+      console.log("Calling backup API:", backupApiUrl);
+
+      const response = await axios.get(backupApiUrl);
+
+      if (response.data?.result?.url) {
+        setBackupState((prev) => ({
+          ...prev,
+          backupUrl: response.data.result.url,
+          isLoadingBackup: false,
+          youtubeError: false,
+        }));
+      } else {
+        throw new Error("Không có URL backup trong response");
+      }
+    } catch (error) {
+      console.error("Lỗi khi lấy backup:", error);
+      setBackupState((prev) => ({
+        ...prev,
+        backupError: true,
+        isLoadingBackup: false,
+      }));
+    }
+  }, [
+    videoState.nowPlayingData?.video_id,
+    videoState.currentVideoId,
+    roomId,
+    backupState.isLoadingBackup,
+    backupState.backupUrl,
+  ]);
+
+  // Sửa lại phần xử lý lỗi YouTube trong useEffect
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleYouTubeErrorEvent = (event: any) => {
+      console.log("YouTube Error occurred:", event.data);
+
+      // Đợi một chút trước khi xử lý lỗi để đảm bảo video ID đã được cập nhật
+      setTimeout(() => {
+        if (!backupState.backupUrl && !backupState.isLoadingBackup) {
+          handleYouTubeError();
+        }
+      }, 1000);
+
+      socket.emit("video_error", {
+        roomId,
+        videoId:
+          videoState.nowPlayingData?.video_id || videoState.currentVideoId,
+        errorCode: event.data,
+      });
+    };
+
+    socket.on("error", handleYouTubeErrorEvent);
+
+    return () => {
+      socket.off("error", handleYouTubeErrorEvent);
+    };
+  }, [
+    socket,
+    handleYouTubeError,
+    backupState.backupUrl,
+    backupState.isLoadingBackup,
+    roomId,
+    videoState.nowPlayingData?.video_id,
+    videoState.currentVideoId,
+  ]);
 
   useEffect(() => {
     // Thêm script YouTube API
@@ -111,118 +279,310 @@ const YouTubePlayer = () => {
 
     (window as any).onYouTubeIframeAPIReady = () => {
       playerRef.current = new (window as any).YT.Player("youtube-player", {
-        videoId: nowPlayingData?.video_id,
+        videoId: videoState.nowPlayingData?.video_id,
         playerVars: {
           autoplay: 1,
-          controls: 1,
+          controls: 0,
           modestbranding: 1,
           rel: 0,
           fs: 1,
           iv_load_policy: 3,
           enablejsapi: 1,
           origin: window.location.origin,
-          disablekb: 1, // Thêm vào để vô hiệu hóa điều khiển bàn phím
-          showinfo: 0, // Thêm vào để ẩn thông tin video
+          disablekb: 1,
           vq: "hd1080",
+          showinfo: 0,
         },
         events: {
           onReady: (event: any) => {
             event.target.setPlaybackQuality("hd1080");
             event.target.playVideo();
-            if (nowPlayingData) {
+            if (videoState.nowPlayingData) {
               const currentServerTime =
-                nowPlayingData.timestamp +
-                (Date.now() - nowPlayingData.timestamp) / 1000;
+                videoState.nowPlayingData.timestamp +
+                (Date.now() - videoState.nowPlayingData.timestamp) / 1000;
               const targetTime =
-                nowPlayingData.currentTime +
-                (currentServerTime - nowPlayingData.timestamp);
+                videoState.nowPlayingData.currentTime +
+                (currentServerTime - videoState.nowPlayingData.timestamp);
               event.target.seekTo(targetTime, true);
             }
             socket?.emit("video_ready", {
               roomId: roomId,
-              videoId: nowPlayingData?.video_id,
+              videoId: videoState.nowPlayingData?.video_id,
             });
-            setIsPaused(false);
+            setVideoState((prev) => ({ ...prev, isPaused: false }));
           },
           onStateChange: (event: any) => handleStateChange(event),
           onPlaybackQualityChange: (event: any) => {
             console.log("Quality changed:", event.data);
           },
+          onError: async (event: any) => {
+            console.log("YouTube Error occurred:", event.data);
+
+            // Gọi handleYouTubeError ngay lập tức khi có bất kỳ lỗi nào
+            await handleYouTubeError();
+
+            // Thông báo lỗi cho server
+            socket?.emit("video_error", {
+              roomId,
+              videoId:
+                videoState.nowPlayingData?.video_id ||
+                videoState.currentVideoId,
+              errorCode: event.data,
+            });
+          },
         },
       });
     };
+  }, [
+    videoState.currentVideoId,
+    handleStateChange,
+    handleYouTubeError,
+    videoState.nowPlayingData,
+    videoState.nowPlayingData?.video_id,
+    roomId,
+    socket,
+  ]);
 
-    // const timer = setInterval(() => {
-    //   setTimeRemaining((prev) => (prev > 0 ? prev - 1 : 0));
-    // }, 1000);
-
-    // return () => clearInterval(timer);
-  }, [nowPlayingData?.video_id, roomId]);
-
-  const handleStateChange = (event: any) => {
-    if (!playerRef.current || !socket) return;
-
-    const YT = (window as any).YT.PlayerState;
-    let currentTime;
-
-    switch (event.data) {
-      case YT.BUFFERING:
-        setIsBuffering(true);
-        break;
-      case YT.PLAYING:
-        setIsBuffering(false);
-        setIsPaused(false);
-        currentTime = playerRef.current.getCurrentTime();
-        socket.emit("sync_time", {
-          roomId,
-          videoId: playerRef.current.getVideoData().video_id,
-          currentTime,
-          timestamp: Date.now(),
-        });
-        break;
-      case YT.PAUSED:
-        setIsPaused(true);
-        break;
-    }
-  };
+  console.log("backupUrl", backupState.backupUrl);
 
   useEffect(() => {
-    if (!socket || !playerRef.current || isBuffering || isPaused) return;
+    if (
+      !socket ||
+      !playerRef.current ||
+      videoState.isBuffering ||
+      videoState.isPaused ||
+      !playerRef.current.getVideoData
+    )
+      return;
 
     const syncInterval = setInterval(() => {
-      const currentTime = playerRef.current.getCurrentTime();
+      const videoData = playerRef.current.getVideoData();
+      if (!videoData) return;
+
       socket.emit("sync_time", {
         roomId,
-        videoId: playerRef.current.getVideoData().video_id,
-        currentTime,
+        videoId: videoData.video_id,
+        currentTime: playerRef.current.getCurrentTime(),
         timestamp: Date.now(),
       });
-    }, 1000);
+    }, 5000);
 
     return () => clearInterval(syncInterval);
-  }, [socket, isBuffering, isPaused]);
+  }, [socket, roomId, videoState.isBuffering, videoState.isPaused]);
 
-  // const formatTime = (seconds: number): string => {
-  //   const hours = Math.floor(seconds / 3600);
-  //   const minutes = Math.floor((seconds % 3600) / 60);
-  //   const remainingSeconds = seconds % 60;
+  useEffect(() => {
+    if (!backupState.youtubeError || !videoState.nowPlayingData?.video_id)
+      return;
 
-  //   return `${hours.toString().padStart(2, "0")}:${minutes
-  //     .toString()
-  //     .padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
-  // };
+    handleYouTubeError(0);
+    setBackupState((prev) => ({ ...prev, youtubeError: false }));
+  }, [
+    backupState.youtubeError,
+    videoState.nowPlayingData?.video_id,
+    handleYouTubeError,
+  ]);
 
-  console.log("isPaused", isPaused);
+  const checkIframeError = useCallback(() => {
+    const iframe = document.querySelector(
+      "#youtube-player iframe"
+    ) as HTMLIFrameElement;
+    if (!iframe) return;
+
+    try {
+      const iframeDoc =
+        iframe.contentDocument || iframe.contentWindow?.document;
+      if (!iframeDoc || iframeDoc.documentElement.innerHTML.includes("error")) {
+        setBackupState((prev) => ({ ...prev, youtubeError: true }));
+      }
+    } catch (e) {
+      setBackupState((prev) => ({ ...prev, youtubeError: true }));
+    }
+  }, []);
+
+  useEffect(() => {
+    const intervalId = setInterval(checkIframeError, 10000);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  // Thêm useEffect để theo dõi sự thay đổi của video_id
+  useEffect(() => {
+    console.log("=== VIDEO ID CHANGED ===");
+    console.log("currentVideoId:", videoState.currentVideoId);
+    console.log(
+      "nowPlayingData video_id:",
+      videoState.nowPlayingData?.video_id
+    );
+    console.log("======================");
+  }, [videoState.currentVideoId, videoState.nowPlayingData?.video_id]);
+
+  useEffect(() => {
+    if (backupState.backupVideoReady && containerRef.current) {
+      try {
+        containerRef.current.requestFullscreen();
+      } catch (error) {
+        console.error("Lỗi khi vào chế độ toàn màn hình:", error);
+      }
+    }
+  }, [backupState.backupVideoReady]);
+
+  // Thêm useEffect để xử lý khi video YouTube sẵn sàng
+  useEffect(() => {
+    if (!videoState.isBuffering && containerRef.current) {
+      try {
+        containerRef.current.requestFullscreen();
+      } catch (error) {
+        console.error("Lỗi khi vào chế độ toàn màn hình:", error);
+      }
+    }
+  }, [videoState.isBuffering]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ position: "relative", width: "100vw", height: "100vh" }}
-    >
-      {/* IFrame YouTube */}
-      <div id="youtube-player" style={{ width: "100%", height: "100%" }}></div>
+    <div ref={containerRef} className="relative w-screen h-screen">
+      <style>
+        {`
+          /* Ẩn tất cả các điều khiển và thông tin của YouTube */
+          .ytp-chrome-top,
+          .ytp-chrome-bottom,
+          .ytp-gradient-top,
+          .ytp-gradient-bottom,
+          .ytp-pause-overlay,
+          .ytp-share-button,
+          .ytp-watch-later-button,
+          .ytp-watermark,
+          .ytp-youtube-button,
+          .ytp-progress-bar-container,
+          .ytp-time-display,
+          .ytp-volume-panel,
+          .ytp-menuitem,
+          .ytp-spinner,
+          .ytp-contextmenu,
+          .ytp-ce-element,
+          .ytp-ce-covering-overlay,
+          .ytp-ce-element-shadow,
+          .ytp-ce-covering-image,
+          .ytp-ce-expanding-image,
+          .ytp-ce-rendered-image,
+          .ytp-endscreen-content,
+          .ytp-suggested-video-overlay,
+          .ytp-pause-overlay-container,
+          /* Thêm các class mới để ẩn video đề xuất */
+          .ytp-endscreen-previous,
+          .ytp-endscreen-next,
+          .ytp-player-content,
+          .html5-endscreen,
+          .ytp-player-content videowall-endscreen,
+          .ytp-show-tiles .ytp-videowall-still,
+          .ytp-endscreen-content {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+          }
 
-      <div className="absolute bottom-[15px] right-[15px] w-[110px] h-[42px] bg-black">
+          /* Ẩn màn hình lỗi YouTube */
+          .ytp-error,
+          .ytp-error-content-wrap,
+          .ytp-error-content-wrap-reason {
+            display: none !important;
+          }
+
+          /* Ẩn iframe khi có lỗi */
+          #youtube-player iframe {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            z-index: -1 !important;
+          }
+        `}
+      </style>
+
+      {/* Sửa lại phần video backup */}
+      <div className="absolute inset-0 w-full h-full">
+        {backupState.backupUrl && !backupState.backupError && (
+          <video
+            key={backupState.backupUrl}
+            className="absolute inset-0 w-full h-full z-10"
+            autoPlay
+            playsInline
+            controls={false}
+            ref={(videoElement) => {
+              // Thêm ref cho video element
+              if (videoElement) {
+                videoElement.addEventListener("loadeddata", () => {
+                  console.log("Video backup đã sẵn sàng");
+                  setBackupState((prev) => ({
+                    ...prev,
+                    backupVideoReady: true,
+                  }));
+                  // Đồng bộ trạng thái play/pause với state hiện tại
+                  if (videoState.isPaused) {
+                    videoElement.pause();
+                  } else {
+                    videoElement.play();
+                  }
+                });
+
+                // Xử lý sự kiện video_event từ socket
+                if (socket) {
+                  socket.on("video_event", (data: any) => {
+                    switch (data.event) {
+                      case PlaybackState.PLAY:
+                        videoElement.currentTime = data.currentTime;
+                        videoElement.play();
+                        setVideoState((prev) => ({ ...prev, isPaused: false }));
+                        break;
+                      case PlaybackState.PAUSE:
+                        videoElement.pause();
+                        setVideoState((prev) => ({ ...prev, isPaused: true }));
+                        break;
+                      case PlaybackState.SEEK:
+                        videoElement.currentTime = data.currentTime;
+                        break;
+                    }
+                  });
+                }
+              }
+            }}
+            onError={(e) => {
+              console.error("Lỗi khi phát video backup:", e);
+              setBackupState((prev) => ({
+                ...prev,
+                backupError: true,
+                backupUrl: "",
+                backupVideoReady: false,
+              }));
+            }}
+            preload="auto"
+          >
+            <source src={backupState.backupUrl} type="video/mp4" />
+            Trình duyệt của bạn không hỗ trợ thẻ video.
+          </video>
+        )}
+      </div>
+
+      {/* YouTube iframe */}
+      <div
+        id="youtube-player"
+        className={`absolute top-0 left-0 w-full h-full ${
+          backupState.backupUrl &&
+          !backupState.backupError &&
+          backupState.backupVideoReady
+            ? "hidden"
+            : "visible"
+        }`}
+      ></div>
+
+      {/* Loading indicator */}
+      {backupState.isLoadingBackup && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black z-50">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-white">
+            <img src={logo} alt="logo" className="w-full h-full" />
+          </div>
+        </div>
+      )}
+
+      {/* Logo */}
+      <div className="absolute z-30 bottom-[15px] right-[15px] w-[110px] h-[42px] bg-black">
         <img src={logo} alt="logo" className="w-full h-full" />
       </div>
     </div>
