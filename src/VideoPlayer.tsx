@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -114,11 +115,11 @@ const YouTubePlayer = () => {
     });
 
     // Thêm xử lý lỗi cho socket
-    socket.on("connect_error", (error) => {
+    socket.on("connect_error", (error: any) => {
       console.error("Socket connection error:", error);
     });
 
-    socket.on("error", (error) => {
+    socket.on("error", (error: any) => {
       console.error("Socket error:", error);
     });
 
@@ -375,7 +376,7 @@ const YouTubePlayer = () => {
     if (!backupState.youtubeError || !videoState.nowPlayingData?.video_id)
       return;
 
-    handleYouTubeError(0);
+    handleYouTubeError();
     setBackupState((prev) => ({ ...prev, youtubeError: false }));
   }, [
     backupState.youtubeError,
@@ -395,7 +396,7 @@ const YouTubePlayer = () => {
       if (!iframeDoc || iframeDoc.documentElement.innerHTML.includes("error")) {
         setBackupState((prev) => ({ ...prev, youtubeError: true }));
       }
-    } catch (e) {
+    } catch (error: any) {
       setBackupState((prev) => ({ ...prev, youtubeError: true }));
     }
   }, []);
