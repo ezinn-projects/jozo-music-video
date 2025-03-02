@@ -42,6 +42,13 @@ const YouTubePlayer = () => {
     youtubeError: false,
   });
 
+  // Thêm state mới
+  const [isChangingSong, setIsChangingSong] = useState(false);
+
+  const [lastTap, setLastTap] = useState(0);
+
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
   console.log("nowPlayingData", videoState.nowPlayingData);
   console.log("currentVideoId", videoState.currentVideoId);
 
@@ -89,9 +96,12 @@ const YouTubePlayer = () => {
     if (!socket) return;
 
     const handleNowPlaying = (data: NowPlayingData) => {
-      if (!data?.video_id) return;
+      setIsChangingSong(true);
+      if (!data?.video_id) {
+        setIsChangingSong(false);
+        return;
+      }
 
-      // Cập nhật tất cả state liên quan trong một lần
       setVideoState((prev) => ({
         ...prev,
         nowPlayingData: data,
@@ -99,7 +109,7 @@ const YouTubePlayer = () => {
         isBuffering: true,
       }));
 
-      // Reset toàn bộ backupState về trạng thái mặc định
+      // Reset backupState
       setBackupState({
         backupUrl: "",
         isLoadingBackup: false,
@@ -349,10 +359,16 @@ const YouTubePlayer = () => {
               videoId: videoState.nowPlayingData?.video_id,
             });
             setVideoState((prev) => ({ ...prev, isPaused: false }));
+            setIsChangingSong(false);
           },
           onStateChange: (event: any) => {
             const YT = (window as any).YT.PlayerState;
             handleStateChange(event);
+
+            // Reset loading khi video bắt đầu phát
+            if (event.data === YT.PLAYING) {
+              setIsChangingSong(false);
+            }
 
             // Chỉ tự động phát lại fallback video khi không có nowPlayingData
             if (!videoState.nowPlayingData && event.data === YT.ENDED) {
@@ -364,11 +380,9 @@ const YouTubePlayer = () => {
           },
           onError: async (event: any) => {
             console.log("YouTube Error occurred:", event.data);
-
-            // Gọi handleYouTubeError ngay lập tức khi có bất kỳ lỗi nào
+            setIsChangingSong(false);
             await handleYouTubeError();
 
-            // Thông báo lỗi cho server
             socket?.emit("video_error", {
               roomId,
               videoId:
@@ -483,8 +497,48 @@ const YouTubePlayer = () => {
     }
   }, [videoState.isBuffering]);
 
+  const handleDoubleTap = () => {
+    const now = Date.now();
+    if (now - lastTap < 300) {
+      // 300ms threshold for double tap
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else {
+        containerRef.current?.requestFullscreen();
+      }
+    }
+    setLastTap(now);
+  };
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isChangingSong) {
+      const timeout = setTimeout(() => {
+        setIsChangingSong(false);
+      }, 10000); // Reset sau 10 giây nếu vẫn đang loading
+
+      return () => clearTimeout(timeout);
+    }
+  }, [isChangingSong]);
+
   return (
-    <div ref={containerRef} className="relative w-screen h-screen">
+    <div
+      ref={containerRef}
+      className="relative w-screen h-screen"
+      onClick={handleDoubleTap}
+    >
       <style>
         {`
           /* Ẩn tất cả các điều khiển và thông tin của YouTube */
@@ -541,6 +595,20 @@ const YouTubePlayer = () => {
           }
         `}
       </style>
+
+      {!isOnline && (
+        <div className="absolute bottom-4 left-4 z-50 bg-yellow-500 px-4 py-2 rounded-full">
+          <p className="text-white">Mất kết nối mạng!</p>
+        </div>
+      )}
+
+      {isChangingSong && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-40">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-white">
+            <img src={logo} alt="logo" className="w-full h-full" />
+          </div>
+        </div>
+      )}
 
       {/* Sửa lại phần video backup */}
       <div className="absolute inset-0 w-full h-full">
@@ -649,6 +717,13 @@ const YouTubePlayer = () => {
               {cuteMessages[currentMessageIndex]}
             </p>
           </div>
+        </div>
+      )}
+
+      {videoState.nowPlayingData && (
+        <div className="absolute top-4 left-4 z-50 bg-black p-4 rounded-lg text-white">
+          <p className="font-bold">{videoState.nowPlayingData.title}</p>
+          <p className="text-sm">Jozo</p>
         </div>
       )}
     </div>
