@@ -45,6 +45,36 @@ const YouTubePlayer = () => {
   console.log("nowPlayingData", videoState.nowPlayingData);
   console.log("currentVideoId", videoState.currentVideoId);
 
+  // Thêm constant cho fallback video ID
+  const FALLBACK_VIDEO_ID = "gwI_TfRS9iU";
+
+  const cuteMessages = [
+    "Jozo có xịn không nào? Chọn bài đi bạn ơi! 🎵",
+    "Jozo cute phô mai que, chọn bài đi nè! 🧀",
+    "Ê ơi, Jozo đang chờ bạn chọn bài nè! 👀",
+    "Jozo nhảy cho coi nè, mau chọn bài đi! 💃",
+    "Jozo xinh chưa? Chọn bài hay hay đi nào! ✨",
+    "Jozo đáng yêu không? Chọn bài quẩy thôi! 🎶",
+    "Jozo đang buồn vì bạn chưa chọn bài huhu 🥺",
+    "Jozo muốn nghe nhạc quá à, chọn bài đi! 🎧",
+    "Cùng Jozo quẩy nhạc nào các bạn ơi! 🎉",
+    "Jozo thích nhạc hay lắm nha, chọn liền đi! 🌟",
+    "Jozo đang chờ bạn chọn bài hay nè! 🎸",
+    "Jozo muốn quẩy cùng bạn, chọn bài thôi! 🎪",
+    "Ơi ơi, Jozo đợi bạn chọn bài nãy giờ! 💫",
+    "Jozo thích bạn chọn bài cực kỳ! 💝",
+  ];
+
+  const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setCurrentMessageIndex((prev) => (prev + 1) % cuteMessages.length);
+    }, 2500); // Đổi message nhanh hơn, mỗi 2.5 giây
+
+    return () => clearInterval(intervalId);
+  }, []);
+
   useEffect(() => {
     const socketInstance = io(import.meta.env.VITE_SOCKET_URL || "", {
       query: { roomId },
@@ -69,14 +99,14 @@ const YouTubePlayer = () => {
         isBuffering: true,
       }));
 
-      setBackupState((prev) => ({
-        ...prev,
+      // Reset toàn bộ backupState về trạng thái mặc định
+      setBackupState({
         backupUrl: "",
+        isLoadingBackup: false,
         backupError: false,
         backupVideoReady: false,
-        isLoadingBackup: false,
         youtubeError: false,
-      }));
+      });
 
       if (playerRef.current?.getVideoData) {
         playerRef.current.loadVideoById({
@@ -280,7 +310,10 @@ const YouTubePlayer = () => {
 
     (window as any).onYouTubeIframeAPIReady = () => {
       playerRef.current = new (window as any).YT.Player("youtube-player", {
-        videoId: videoState.nowPlayingData?.video_id,
+        // Chỉ sử dụng FALLBACK_VIDEO_ID khi không có nowPlayingData
+        videoId:
+          videoState.nowPlayingData?.video_id ||
+          (!videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined),
         playerVars: {
           autoplay: 1,
           controls: 0,
@@ -293,11 +326,15 @@ const YouTubePlayer = () => {
           disablekb: 1,
           vq: "hd1080",
           showinfo: 0,
+          // Chỉ loop khi không có nowPlayingData
+          loop: !videoState.nowPlayingData ? 1 : 0,
+          playlist: !videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined,
         },
         events: {
           onReady: (event: any) => {
             event.target.setPlaybackQuality("hd1080");
             event.target.playVideo();
+            // Chỉ seek time khi có video chính
             if (videoState.nowPlayingData) {
               const currentServerTime =
                 videoState.nowPlayingData.timestamp +
@@ -313,7 +350,15 @@ const YouTubePlayer = () => {
             });
             setVideoState((prev) => ({ ...prev, isPaused: false }));
           },
-          onStateChange: (event: any) => handleStateChange(event),
+          onStateChange: (event: any) => {
+            const YT = (window as any).YT.PlayerState;
+            handleStateChange(event);
+
+            // Chỉ tự động phát lại fallback video khi không có nowPlayingData
+            if (!videoState.nowPlayingData && event.data === YT.ENDED) {
+              event.target.playVideo();
+            }
+          },
           onPlaybackQualityChange: (event: any) => {
             console.log("Quality changed:", event.data);
           },
@@ -507,8 +552,14 @@ const YouTubePlayer = () => {
             playsInline
             controls={false}
             ref={(videoElement) => {
-              // Thêm ref cho video element
               if (videoElement) {
+                // Dọn dẹp video cũ
+                const oldVideo = document.querySelector("video");
+                if (oldVideo && oldVideo !== videoElement) {
+                  oldVideo.pause();
+                  oldVideo.remove();
+                }
+
                 videoElement.addEventListener("loadeddata", () => {
                   console.log("Video backup đã sẵn sàng");
                   setBackupState((prev) => ({
@@ -525,6 +576,9 @@ const YouTubePlayer = () => {
 
                 // Xử lý sự kiện video_event từ socket
                 if (socket) {
+                  // Cleanup socket listeners trước khi thêm mới
+                  socket.off("video_event");
+
                   socket.on("video_event", (data: any) => {
                     switch (data.event) {
                       case PlaybackState.PLAY:
@@ -586,6 +640,17 @@ const YouTubePlayer = () => {
       <div className="absolute z-30 bottom-[15px] right-[15px] w-[110px] h-[42px] bg-black">
         <img src={logo} alt="logo" className="w-full h-full" />
       </div>
+
+      {/* Chỉ hiển thị message khi không có video_id */}
+      {!videoState.nowPlayingData?.video_id && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50">
+          <div className="bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 px-6 py-3 rounded-full shadow-lg">
+            <p className="text-white text-xl font-bold animate-bounce">
+              {cuteMessages[currentMessageIndex]}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
