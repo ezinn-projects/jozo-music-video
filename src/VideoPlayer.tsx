@@ -1,11 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useRef, useState, useCallback } from "react";
+import axios from "axios";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import io, { Socket } from "socket.io-client";
 import { logo } from "./assets";
-import { PlaybackState } from "./constants/enum";
-import axios from "axios";
 
 interface NowPlayingData {
   video_id: string;
@@ -17,10 +16,27 @@ interface NowPlayingData {
   currentTime: number;
 }
 
+// Cập nhật interface cho events
+interface VideoEvent {
+  event: "play" | "pause" | "seek";
+  videoId: string;
+  currentTime: number;
+}
+
+interface PlaySongEvent {
+  video_id: string;
+  title: string;
+  thumbnail: string;
+  author: string;
+  duration: number;
+  currentTime: number;
+  timestamp: number;
+}
+
 const YouTubePlayer = () => {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // const overlayRef = useRef<HTMLDivElement>(null);
+  const backupVideoRef = useRef<HTMLVideoElement>(null);
   const [socket, setSocket] = useState<typeof Socket | null>(null);
   const [params] = useSearchParams();
   const roomId = params.get("roomId") || "";
@@ -42,15 +58,15 @@ const YouTubePlayer = () => {
     youtubeError: false,
   });
 
+  console.log("videoState", videoState);
+  console.log("backupState", backupState);
+
   // Thêm state mới
   const [isChangingSong, setIsChangingSong] = useState(false);
 
   const [lastTap, setLastTap] = useState(0);
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-
-  console.log("nowPlayingData", videoState.nowPlayingData);
-  console.log("currentVideoId", videoState.currentVideoId);
 
   // Thêm constant cho fallback video ID
   const FALLBACK_VIDEO_ID = "gwI_TfRS9iU";
@@ -95,21 +111,23 @@ const YouTubePlayer = () => {
   useEffect(() => {
     if (!socket) return;
 
-    const handleNowPlaying = (data: NowPlayingData) => {
+    // Xử lý play_song event
+    const handlePlaySong = (data: PlaySongEvent) => {
+      console.log("Received play song:", data);
       setIsChangingSong(true);
-      if (!data?.video_id) {
-        setIsChangingSong(false);
-        return;
-      }
 
       setVideoState((prev) => ({
         ...prev,
-        nowPlayingData: data,
+        nowPlayingData: {
+          ...data,
+          currentTime: 0, // Reset currentTime khi nhận bài mới
+        },
         currentVideoId: data.video_id,
         isBuffering: true,
+        isPaused: false,
       }));
 
-      // Reset backupState
+      // Reset backup states
       setBackupState({
         backupUrl: "",
         isLoadingBackup: false,
@@ -118,85 +136,154 @@ const YouTubePlayer = () => {
         youtubeError: false,
       });
 
-      if (playerRef.current?.getVideoData) {
+      if (playerRef.current?.loadVideoById) {
         playerRef.current.loadVideoById({
           videoId: data.video_id,
-          startSeconds: data.currentTime,
+          startSeconds: 0, // Bắt đầu từ đầu
         });
       }
     };
 
-    socket.emit("get_now_playing", { roomId });
-    socket.on("now_playing", handleNowPlaying);
+    // Xử lý playback_event
+    const handlePlaybackEvent = (data: VideoEvent) => {
+      console.log("Received playback event:", data);
 
-    // Lắng nghe sự kiện video_event từ ControlBar
-    socket.on("video_event", (data: any) => {
+      // Xử lý cho backup video
+      if (backupState.backupUrl && backupVideoRef.current) {
+        switch (data.event) {
+          case "play":
+            console.log("Playing backup video");
+            backupVideoRef.current.currentTime = data.currentTime;
+            backupVideoRef.current.play().then(() => {
+              setVideoState((prev) => ({ ...prev, isPaused: false }));
+            });
+            break;
+          case "pause":
+            console.log("Pausing backup video");
+            backupVideoRef.current.pause();
+            setVideoState((prev) => ({ ...prev, isPaused: true }));
+            break;
+          case "seek":
+            backupVideoRef.current.currentTime = data.currentTime;
+            break;
+        }
+        return;
+      }
+
+      // Xử lý cho YouTube player
       if (playerRef.current) {
         switch (data.event) {
-          case PlaybackState.PLAY:
+          case "play":
+            console.log("Playing YouTube video");
             playerRef.current.seekTo(data.currentTime, true);
             playerRef.current.playVideo();
             setVideoState((prev) => ({ ...prev, isPaused: false }));
             break;
-          case PlaybackState.PAUSE:
+          case "pause":
+            console.log("Pausing YouTube video");
             playerRef.current.pauseVideo();
             setVideoState((prev) => ({ ...prev, isPaused: true }));
             break;
-          case PlaybackState.SEEK:
+          case "seek":
             playerRef.current.seekTo(data.currentTime, true);
             break;
         }
       }
-    });
+    };
 
-    // Lắng nghe sự kiện next_song
-    socket.on("next_song", () => {
-      socket.emit("get_now_playing", { roomId });
-    });
+    // Đăng ký các event listeners
+    socket.on("play_song", handlePlaySong);
+    socket.on("video_event", handlePlaybackEvent);
 
-    // Thêm xử lý lỗi cho socket
-    socket.on("connect_error", (error: any) => {
-      console.error("Socket connection error:", error);
-    });
+    // Thêm handler cho now_playing_cleared
+    const handleNowPlayingCleared = () => {
+      setVideoState((prev) => ({
+        ...prev,
+        nowPlayingData: null,
+        currentVideoId: "",
+      }));
 
-    socket.on("error", (error: any) => {
-      console.error("Socket error:", error);
-    });
+      // Load video đợi
+      if (playerRef.current?.loadVideoById) {
+        playerRef.current.loadVideoById({
+          videoId: FALLBACK_VIDEO_ID,
+          startSeconds: 0,
+        });
+      }
+    };
+
+    socket.on("now_playing_cleared", handleNowPlayingCleared);
 
     return () => {
-      socket.off("now_playing", handleNowPlaying);
-      socket.off("video_event");
-      socket.off("next_song");
+      socket.off("play_song", handlePlaySong);
+      socket.off("video_event", handlePlaybackEvent);
+      socket.off("now_playing_cleared", handleNowPlayingCleared);
     };
-  }, [socket, roomId]);
+  }, [socket, backupState.backupUrl]);
+
+  // Thêm xử lý khi video kết thúc
+  const handleVideoEnd = useCallback(() => {
+    if (!socket || !videoState.nowPlayingData) return;
+
+    socket.emit("song_ended", {
+      roomId,
+      videoId: videoState.nowPlayingData.video_id,
+    });
+  }, [socket, videoState.nowPlayingData, roomId]);
+
+  // Thêm handler riêng cho video backup
+  const handleBackupVideoEnd = useCallback(() => {
+    if (!socket || !videoState.nowPlayingData) return;
+
+    // Kiểm tra xem video có thực sự gần kết thúc không
+    if (backupVideoRef.current) {
+      const currentTime = backupVideoRef.current.currentTime;
+      const duration = backupVideoRef.current.duration;
+
+      // Chỉ emit song_ended khi thời gian hiện tại gần với duration gốc
+      if (duration && currentTime >= duration - 1.5) {
+        socket.emit("song_ended", {
+          roomId,
+          videoId: videoState.nowPlayingData.video_id,
+        });
+      }
+    }
+  }, [socket, videoState.nowPlayingData, roomId]);
 
   const handleStateChange = useCallback(
     (event: any) => {
       if (!playerRef.current || !socket) return;
 
       const YT = (window as any).YT.PlayerState;
+      console.log("YouTube State Change:", event.data);
 
       switch (event.data) {
         case YT.BUFFERING:
           setVideoState((prev) => ({ ...prev, isBuffering: true }));
           break;
         case YT.PLAYING:
+          console.log("Video is now playing");
           setVideoState((prev) => ({
             ...prev,
             isBuffering: false,
             isPaused: false,
           }));
-          if (playerRef.current.getVideoData?.()) {
-            socket.emit("sync_time", {
-              roomId,
-              videoId: playerRef.current.getVideoData().video_id,
-              currentTime: playerRef.current.getCurrentTime(),
-              timestamp: Date.now(),
-            });
-          }
+          socket.emit("video_event", {
+            roomId,
+            event: "play",
+            videoId: playerRef.current.getVideoData().video_id,
+            currentTime: playerRef.current.getCurrentTime(),
+          });
           break;
         case YT.PAUSED:
+          console.log("Video is now paused");
           setVideoState((prev) => ({ ...prev, isPaused: true }));
+          socket.emit("video_event", {
+            roomId,
+            event: "pause",
+            videoId: playerRef.current.getVideoData().video_id,
+            currentTime: playerRef.current.getCurrentTime(),
+          });
           break;
       }
     },
@@ -212,8 +299,6 @@ const YouTubePlayer = () => {
       currentVideoData?.video_id ||
       videoState.nowPlayingData?.video_id ||
       videoState.currentVideoId;
-
-    console.log("videoId", videoId);
 
     // Log để debug
     console.log("Current video data:", {
@@ -365,12 +450,15 @@ const YouTubePlayer = () => {
             const YT = (window as any).YT.PlayerState;
             handleStateChange(event);
 
-            // Reset loading khi video bắt đầu phát
+            // Thêm xử lý khi video kết thúc
+            if (event.data === YT.ENDED) {
+              handleVideoEnd();
+            }
+
             if (event.data === YT.PLAYING) {
               setIsChangingSong(false);
             }
 
-            // Chỉ tự động phát lại fallback video khi không có nowPlayingData
             if (!videoState.nowPlayingData && event.data === YT.ENDED) {
               event.target.playVideo();
             }
@@ -402,34 +490,94 @@ const YouTubePlayer = () => {
     videoState.nowPlayingData?.video_id,
     roomId,
     socket,
+    handleVideoEnd,
   ]);
 
-  console.log("backupUrl", backupState.backupUrl);
+  const handleTimeUpdate = () => {
+    if (isChangingSong || !videoState.nowPlayingData) return; // Skip if no active song
 
-  useEffect(() => {
-    if (
-      !socket ||
-      !playerRef.current ||
-      videoState.isBuffering ||
-      videoState.isPaused ||
-      !playerRef.current.getVideoData
-    )
+    // Xử lý cho video backup
+    if (backupState.backupUrl && backupVideoRef.current) {
+      const currentTime = backupVideoRef.current.currentTime;
+      const rawDuration = backupVideoRef.current.duration;
+      const duration = rawDuration ? Math.max(0, rawDuration - 1.5) : 0;
+      const isPlaying = !backupVideoRef.current.paused;
+
+      if (currentTime >= duration) {
+        socket?.emit("song_ended", {
+          roomId,
+          videoId: videoState.currentVideoId,
+        });
+      }
+
+      if (
+        currentTime !== undefined &&
+        duration &&
+        !isNaN(currentTime) &&
+        !isNaN(duration)
+      ) {
+        socket?.emit("time_update", {
+          roomId,
+          videoId: videoState.currentVideoId,
+          currentTime,
+          duration,
+          isPlaying,
+        });
+      }
       return;
+    }
 
-    const syncInterval = setInterval(() => {
-      const videoData = playerRef.current.getVideoData();
-      if (!videoData) return;
+    // Xử lý cho YouTube player
+    if (!playerRef.current) return;
 
-      socket.emit("sync_time", {
+    const videoData = playerRef.current.getVideoData?.();
+    if (!videoData) return;
+
+    const currentTime = playerRef.current.getCurrentTime();
+    const duration = playerRef.current.getDuration();
+
+    if (currentTime >= duration) {
+      socket?.emit("song_ended", {
         roomId,
         videoId: videoData.video_id,
-        currentTime: playerRef.current.getCurrentTime(),
-        timestamp: Date.now(),
       });
-    }, 5000);
+    }
 
-    return () => clearInterval(syncInterval);
-  }, [socket, roomId, videoState.isBuffering, videoState.isPaused]);
+    if (currentTime && duration && !isNaN(currentTime) && !isNaN(duration)) {
+      socket?.emit("time_update", {
+        roomId,
+        videoId: videoData.video_id,
+        currentTime,
+        duration,
+        isPlaying: !videoState.isPaused,
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!socket) return;
+
+    // Xử lý cho video backup và YouTube player events
+    // ... rest of the event handling code ...
+
+    let intervalId: number;
+    if (!videoState.isPaused) {
+      intervalId = window.setInterval(handleTimeUpdate, 1000);
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [
+    socket,
+    roomId,
+    videoState.isPaused,
+    backupState.backupUrl,
+    videoState.currentVideoId,
+    isChangingSong,
+  ]);
 
   useEffect(() => {
     if (!backupState.youtubeError || !videoState.nowPlayingData?.video_id)
@@ -614,58 +762,43 @@ const YouTubePlayer = () => {
       <div className="absolute inset-0 w-full h-full">
         {backupState.backupUrl && !backupState.backupError && (
           <video
+            ref={backupVideoRef}
             key={backupState.backupUrl}
             className="absolute inset-0 w-full h-full z-10"
             autoPlay
             playsInline
             controls={false}
-            ref={(videoElement) => {
-              if (videoElement) {
-                // Dọn dẹp video cũ
-                const oldVideo = document.querySelector("video");
-                if (oldVideo && oldVideo !== videoElement) {
-                  oldVideo.pause();
-                  oldVideo.remove();
-                }
+            onLoadedData={() => {
+              console.log("Video backup đã sẵn sàng");
+              setBackupState((prev) => ({
+                ...prev,
+                backupVideoReady: true,
+              }));
 
-                videoElement.addEventListener("loadeddata", () => {
-                  console.log("Video backup đã sẵn sàng");
-                  setBackupState((prev) => ({
-                    ...prev,
-                    backupVideoReady: true,
-                  }));
-                  // Đồng bộ trạng thái play/pause với state hiện tại
-                  if (videoState.isPaused) {
-                    videoElement.pause();
-                  } else {
-                    videoElement.play();
-                  }
-                });
+              socket?.emit("video_ready", {
+                roomId,
+                videoId: videoState.currentVideoId,
+              });
 
-                // Xử lý sự kiện video_event từ socket
-                if (socket) {
-                  // Cleanup socket listeners trước khi thêm mới
-                  socket.off("video_event");
-
-                  socket.on("video_event", (data: any) => {
-                    switch (data.event) {
-                      case PlaybackState.PLAY:
-                        videoElement.currentTime = data.currentTime;
-                        videoElement.play();
-                        setVideoState((prev) => ({ ...prev, isPaused: false }));
-                        break;
-                      case PlaybackState.PAUSE:
-                        videoElement.pause();
-                        setVideoState((prev) => ({ ...prev, isPaused: true }));
-                        break;
-                      case PlaybackState.SEEK:
-                        videoElement.currentTime = data.currentTime;
-                        break;
-                    }
+              // Tự động phát video
+              backupVideoRef.current
+                ?.play()
+                .then(() => {
+                  // Sau khi bắt đầu phát thành công, emit event play ngay lập tức
+                  socket?.emit("video_event", {
+                    roomId,
+                    event: "play",
+                    videoId: videoState.currentVideoId,
+                    currentTime: backupVideoRef.current?.currentTime || 0,
                   });
-                }
-              }
+
+                  setVideoState((prev) => ({ ...prev, isPaused: false }));
+                })
+                .catch((error) => {
+                  console.error("Lỗi khi tự động phát video backup:", error);
+                });
             }}
+            onEnded={handleBackupVideoEnd}
             onError={(e) => {
               console.error("Lỗi khi phát video backup:", e);
               setBackupState((prev) => ({
