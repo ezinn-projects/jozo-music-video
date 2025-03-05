@@ -90,6 +90,15 @@ const YouTubePlayer = () => {
 
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
 
+  // Thêm state để lưu trữ âm lượng
+  const [volume, setVolume] = useState(100);
+
+  // Thêm state để hiển thị indicator
+  const [volumeToast, setVolumeToast] = useState<{
+    show: boolean;
+    value: number;
+  }>({ show: false, value: 100 });
+
   useEffect(() => {
     const intervalId = setInterval(() => {
       setCurrentMessageIndex((prev) => (prev + 1) % cuteMessages.length);
@@ -193,6 +202,7 @@ const YouTubePlayer = () => {
 
     // Đăng ký các event listeners
     socket.on("play_song", handlePlaySong);
+
     socket.on("video_event", handlePlaybackEvent);
 
     // Thêm handler cho now_playing_cleared
@@ -445,6 +455,9 @@ const YouTubePlayer = () => {
             });
             setVideoState((prev) => ({ ...prev, isPaused: false }));
             setIsChangingSong(false);
+
+            // Đặt âm lượng ban đầu cho YouTube player
+            event.target.setVolume(volume);
           },
           onStateChange: (event: any) => {
             const YT = (window as any).YT.PlayerState;
@@ -491,6 +504,7 @@ const YouTubePlayer = () => {
     roomId,
     socket,
     handleVideoEnd,
+    volume,
   ]);
 
   const handleTimeUpdate = () => {
@@ -681,6 +695,44 @@ const YouTubePlayer = () => {
     }
   }, [isChangingSong]);
 
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleVolumeChange = (newVolume: number) => {
+      setVolume(newVolume);
+
+      // Hiển thị toast
+      setVolumeToast({ show: true, value: newVolume });
+
+      // Áp dụng âm lượng cho YouTube player
+      if (playerRef.current?.setVolume) {
+        playerRef.current.setVolume(newVolume);
+      }
+      // Áp dụng âm lượng cho video backup
+      if (backupVideoRef.current) {
+        backupVideoRef.current.volume = newVolume / 100;
+      }
+
+      // Tự động ẩn toast sau 2 giây
+      setTimeout(() => {
+        setVolumeToast((prev) => ({ ...prev, show: false }));
+      }, 2000);
+    };
+
+    socket.on("volumeChange", handleVolumeChange);
+
+    return () => {
+      socket.off("volumeChange", handleVolumeChange);
+    };
+  }, [socket]);
+
+  // Cập nhật xử lý cho video backup
+  useEffect(() => {
+    if (backupVideoRef.current) {
+      backupVideoRef.current.volume = volume / 100;
+    }
+  }, [volume, backupState.backupUrl]);
+
   return (
     <div
       ref={containerRef}
@@ -859,6 +911,71 @@ const YouTubePlayer = () => {
           <p className="text-sm">Jozo</p>
         </div>
       )}
+
+      {/* Volume Toast */}
+      <div
+        className={`fixed top-4 right-4 z-50 flex items-center gap-2 bg-black/80 px-4 py-2 rounded-lg transition-all duration-300 ${
+          volumeToast.show
+            ? "opacity-100 translate-y-0"
+            : "opacity-0 translate-y-[-20px]"
+        }`}
+      >
+        {volumeToast.value === 0 ? (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5 text-white"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
+            />
+          </svg>
+        ) : volumeToast.value < 50 ? (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5 text-white"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM15 9.354a4 4 0 010 5.292"
+            />
+          </svg>
+        ) : (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5 text-white"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+            />
+          </svg>
+        )}
+        <span className="text-white font-medium">
+          Âm lượng: {volumeToast.value}%
+        </span>
+      </div>
     </div>
   );
 };
