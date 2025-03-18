@@ -93,6 +93,8 @@ const YouTubePlayer = () => {
   // Thêm state để lưu trữ âm lượng
   const [volume, setVolume] = useState(100);
 
+  const [showTitle, setShowTitle] = useState(true);
+
   // Thêm state để hiển thị indicator
   const [volumeToast, setVolumeToast] = useState<{
     show: boolean;
@@ -106,6 +108,22 @@ const YouTubePlayer = () => {
 
     return () => clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    if (videoState.nowPlayingData) {
+      if (videoState.isPaused) {
+        // Nếu đang pause, luôn hiển thị
+        setShowTitle(true);
+      } else {
+        // Nếu đang chạy, hiển thị tên bài rồi ẩn sau 8 giây
+        setShowTitle(true);
+        const timer = setTimeout(() => {
+          setShowTitle(false);
+        }, 8000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [videoState.nowPlayingData, videoState.isPaused]);
 
   useEffect(() => {
     const socketInstance = io(import.meta.env.VITE_SOCKET_URL || "", {
@@ -890,7 +908,7 @@ const YouTubePlayer = () => {
       )}
 
       {/* Logo */}
-      <div className="absolute z-30 bottom-[15px] right-[15px] w-[110px] h-[42px] bg-black">
+      <div className="absolute z-30 top-[15px] right-[15px] w-[140px] h-[50px] bg-black">
         <img src={logo} alt="logo" className="w-full h-full" />
       </div>
 
@@ -905,7 +923,7 @@ const YouTubePlayer = () => {
         </div>
       )}
 
-      {videoState.nowPlayingData && (
+      {videoState.nowPlayingData && showTitle && (
         <div className="absolute top-4 left-4 z-50 bg-black p-4 rounded-lg text-white">
           <p className="font-bold">{videoState.nowPlayingData.title}</p>
           <p className="text-sm">Jozo</p>
