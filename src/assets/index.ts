@@ -1,3 +1,3 @@
-import logo from "./Screenshot_11-removebg-preview.png";
+import logo from "./logo.png";
 
 export { logo };

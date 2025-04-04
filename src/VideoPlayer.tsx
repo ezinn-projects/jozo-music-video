@@ -757,6 +757,11 @@ const YouTubePlayer = () => {
       className="relative w-screen h-screen"
       onClick={handleDoubleTap}
     >
+      {/* Thêm backdrop blur chỉ khi video bị pause */}
+      {videoState.isPaused && videoState.nowPlayingData && (
+        <div className="absolute inset-0 backdrop-blur-sm z-20"></div>
+      )}
+
       <style>
         {`
           /* Ẩn tất cả các điều khiển và thông tin của YouTube */
@@ -911,6 +916,23 @@ const YouTubePlayer = () => {
       <div className="absolute z-30 top-[15px] right-[15px] w-[140px] h-[50px] bg-black">
         <img src={logo} alt="logo" className="w-full h-full" />
       </div>
+
+      {/* Pause Overlay - Hiển thị khi video bị pause và có dữ liệu video */}
+      {videoState.isPaused && videoState.nowPlayingData && (
+        <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-40">
+          <div className="animate-[breath_3s_ease-in-out_infinite] flex flex-col items-center p-8 rounded-lg bg-black/30 backdrop-blur-md shadow-2xl">
+            <img
+              src={logo}
+              alt="logo"
+              className="w-40 h-40 object-contain drop-shadow-[0_0_10px_rgba(255,255,255,0.7)]"
+            />
+            <p className="text-white mt-6 text-2xl font-bold tracking-wider text-shadow">
+              {videoState.nowPlayingData.title}
+            </p>
+            <p className="text-white/70 mt-2 text-lg">Đang tạm dừng</p>
+          </div>
+        </div>
+      )}
 
       {/* Chỉ hiển thị message khi không có video_id */}
       {!videoState.nowPlayingData?.video_id && (
