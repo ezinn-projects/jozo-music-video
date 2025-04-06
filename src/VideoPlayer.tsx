@@ -352,6 +352,7 @@ const YouTubePlayer = () => {
         ...prev,
         isLoadingBackup: true,
         backupError: false,
+        youtubeError: true, // Đánh dấu là YouTube đang có lỗi
       }));
 
       const backupApiUrl = `${
@@ -366,7 +367,7 @@ const YouTubePlayer = () => {
           ...prev,
           backupUrl: response.data.result.url,
           isLoadingBackup: false,
-          youtubeError: false,
+          youtubeError: true, // Vẫn giữ trạng thái lỗi YouTube để ẩn iframe
         }));
       } else {
         throw new Error("Không có URL backup trong response");
@@ -377,6 +378,7 @@ const YouTubePlayer = () => {
         ...prev,
         backupError: true,
         isLoadingBackup: false,
+        youtubeError: true, // Vẫn đánh dấu YouTube lỗi
       }));
     }
   }, [
@@ -500,6 +502,13 @@ const YouTubePlayer = () => {
           onError: async (event: any) => {
             console.log("YouTube Error occurred:", event.data);
             setIsChangingSong(false);
+
+            // Đánh dấu YouTube có lỗi trước khi gọi handleYouTubeError
+            setBackupState((prev) => ({
+              ...prev,
+              youtubeError: true,
+            }));
+
             await handleYouTubeError();
 
             socket?.emit("video_error", {
@@ -609,6 +618,7 @@ const YouTubePlayer = () => {
     backupState.backupUrl,
     videoState.currentVideoId,
     isChangingSong,
+    handleTimeUpdate,
   ]);
 
   useEffect(() => {
@@ -759,7 +769,12 @@ const YouTubePlayer = () => {
     >
       {/* Thêm backdrop blur chỉ khi video bị pause */}
       {videoState.isPaused && videoState.nowPlayingData && (
-        <div className="absolute inset-0 backdrop-blur-sm z-20"></div>
+        <div className="absolute inset-0 backdrop-blur-sm z-[25]"></div>
+      )}
+
+      {/* Thêm background đen phía dưới video khi pause */}
+      {videoState.isPaused && videoState.nowPlayingData && (
+        <div className="absolute bottom-0 left-0 right-0 h-[250px] bg-gradient-to-t from-black via-black/80 to-transparent z-[20]"></div>
       )}
 
       <style>
@@ -839,10 +854,12 @@ const YouTubePlayer = () => {
           <video
             ref={backupVideoRef}
             key={backupState.backupUrl}
-            className="absolute inset-0 w-full h-full z-10"
+            className="absolute inset-0 w-full h-full object-contain z-10"
             autoPlay
             playsInline
             controls={false}
+            disablePictureInPicture
+            controlsList="nodownload noplaybackrate nofullscreen"
             onLoadedData={() => {
               console.log("Video backup đã sẵn sàng");
               setBackupState((prev) => ({
@@ -884,6 +901,12 @@ const YouTubePlayer = () => {
               }));
             }}
             preload="auto"
+            style={{
+              objectFit: "contain",
+              width: "100%",
+              height: "100%",
+              backgroundColor: "#000",
+            }}
           >
             <source src={backupState.backupUrl} type="video/mp4" />
             Trình duyệt của bạn không hỗ trợ thẻ video.
@@ -899,9 +922,38 @@ const YouTubePlayer = () => {
           !backupState.backupError &&
           backupState.backupVideoReady
             ? "hidden"
+            : backupState.youtubeError
+            ? "opacity-0 pointer-events-none"
             : "visible"
         }`}
       ></div>
+
+      {/* Hiển thị màn hình lỗi YouTube khi không có backup */}
+      {backupState.youtubeError && !backupState.backupUrl && (
+        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-[25]">
+          <div className="text-center p-4 rounded-md bg-black/40 max-w-[90%] w-auto">
+            <img
+              src={logo}
+              alt="logo"
+              className="w-20 h-20 mx-auto mb-4 animate-pulse"
+            />
+            <p className="text-white text-xl font-bold mb-2">
+              Video không khả dụng
+            </p>
+            <p className="text-white/70 text-base mb-3">
+              Đang thử tải nguồn dự phòng...
+            </p>
+            {backupState.isLoadingBackup && (
+              <div className="w-8 h-8 border-t-3 border-pink-500 rounded-full animate-spin mx-auto mt-2"></div>
+            )}
+            {backupState.backupError && (
+              <p className="text-red-400 mt-2 text-sm">
+                Không thể tải nguồn dự phòng. Vui lòng thử lại sau.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Loading indicator */}
       {backupState.isLoadingBackup && (
@@ -919,7 +971,7 @@ const YouTubePlayer = () => {
 
       {/* Pause Overlay - Hiển thị khi video bị pause và có dữ liệu video */}
       {videoState.isPaused && videoState.nowPlayingData && (
-        <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-40">
+        <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-[30]">
           <div className="animate-[breath_3s_ease-in-out_infinite] flex flex-col items-center p-8 rounded-lg bg-black/30 backdrop-blur-md shadow-2xl">
             <img
               src={logo}
