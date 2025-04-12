@@ -101,6 +101,87 @@ const YouTubePlayer = () => {
     value: number;
   }>({ show: false, value: 100 });
 
+  // Thêm danh sách nhạc trending
+  const trendingSongs = [
+    // Rap/Hip-hop
+    {
+      title: "Nước Mắt Cá Sấu",
+      artist: "HIEUTHUHAI",
+      views: "15.2M",
+      genre: "Rap",
+    },
+    {
+      title: "Trời Hôm Nay Nhiều Mây Cực",
+      artist: "HIEUTHUHAI",
+      views: "12.8M",
+      genre: "Rap",
+    },
+    {
+      title: "Khi Cơn Mơ Dần Phai",
+      artist: "Tlinh ft. 2pillz",
+      views: "10.5M",
+      genre: "Rap",
+    },
+    {
+      title: "Không Thể Say",
+      artist: "HIEUTHUHAI",
+      views: "9.8M",
+      genre: "Rap",
+    },
+    // V-Pop
+    {
+      title: "Ngày Mai Rồi Sẽ Khác",
+      artist: "Sơn Tùng M-TP",
+      views: "18.5M",
+      genre: "V-Pop",
+    },
+    {
+      title: "Đừng Lo Em À",
+      artist: "Hoàng Thùy Linh",
+      views: "11.2M",
+      genre: "V-Pop",
+    },
+    {
+      title: "Yêu Anh Đi",
+      artist: "Hòa Minzy",
+      views: "8.9M",
+      genre: "V-Pop",
+    },
+    // R&B
+    {
+      title: "Anh Là Ngoại Lệ Của Em",
+      artist: "Phương Ly",
+      views: "7.8M",
+      genre: "R&B",
+    },
+    {
+      title: "Những Ngày Mưa",
+      artist: "Vũ.",
+      views: "9.1M",
+      genre: "R&B",
+    },
+    // Underground
+    {
+      title: "id 072019 2.0",
+      artist: "W/N",
+      views: "6.5M",
+      genre: "Underground",
+    },
+    {
+      title: "Chìm Sâu",
+      artist: "MCK, Trung Trần",
+      views: "8.2M",
+      genre: "Underground",
+    },
+    // Ballad
+    {
+      title: "Có Một Nơi",
+      artist: "Hà Anh Tuấn",
+      views: "5.9M",
+      genre: "Ballad",
+    },
+  ];
+
   useEffect(() => {
     const intervalId = setInterval(() => {
       setCurrentMessageIndex((prev) => (prev + 1) % cuteMessages.length);
@@ -986,13 +1067,96 @@ const YouTubePlayer = () => {
         </div>
       )}
 
-      {/* Chỉ hiển thị message khi không có video_id */}
+      {/* Fallback overlay - hiển thị khi không có bài hát nào đang phát */}
       {!videoState.nowPlayingData?.video_id && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50">
-          <div className="bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 px-6 py-3 rounded-full shadow-lg">
-            <p className="text-white text-xl font-bold animate-bounce">
+        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/90 via-black/95 to-pink-900/90 z-[30] flex flex-col items-center justify-center">
+          <div className="relative mb-8">
+            <img
+              src={logo}
+              alt="logo"
+              className="w-32 h-32 object-contain animate-[bounce_6s_ease-in-out_infinite] drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/5 to-transparent animate-[pulse_2s_ease-in-out_infinite]"></div>
+          </div>
+
+          <div className="px-8 py-4 rounded-2xl bg-black/30 backdrop-blur-sm border border-white/10 shadow-[0_0_15px_rgba(0,0,0,0.3)] mb-8">
+            <p className="text-white text-xl font-bold text-center animate-bounce">
               {cuteMessages[currentMessageIndex]}
             </p>
+          </div>
+
+          {/* Danh sách nhạc trending */}
+          <div className="w-full max-w-3xl px-6">
+            <div className="bg-black/40 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
+              <h3 className="text-white text-xl font-bold mb-6 flex items-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-6 w-6 mr-2 text-pink-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                  />
+                </svg>
+                Đang Thịnh Hành
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {trendingSongs.map((song, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-3 rounded-lg hover:bg-white/5 transition-colors group border border-white/5"
+                  >
+                    <div className="flex items-center flex-1 min-w-0">
+                      <span className="text-2xl font-bold text-white/50 w-8 shrink-0">
+                        {index + 1}
+                      </span>
+                      <div className="ml-4 truncate">
+                        <p className="text-white font-semibold group-hover:text-pink-500 transition-colors truncate">
+                          {song.title}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-white/60 text-sm truncate">
+                            {song.artist}
+                          </p>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/80">
+                            {song.genre}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center text-white/60 text-sm ml-4 shrink-0">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4 mr-1"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                        />
+                      </svg>
+                      {song.views}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
