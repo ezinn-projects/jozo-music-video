@@ -530,7 +530,7 @@ const YouTubePlayer = () => {
           enablejsapi: 1,
           origin: window.location.origin,
           disablekb: 1,
-          vq: !videoState.nowPlayingData ? "medium" : "hd1080",
+          vq: !videoState.nowPlayingData ? "tiny" : "hd1080",
           showinfo: 0,
           // Chỉ loop khi không có nowPlayingData
           loop: !videoState.nowPlayingData ? 1 : 0,
@@ -539,7 +539,7 @@ const YouTubePlayer = () => {
         events: {
           onReady: (event: any) => {
             event.target.setPlaybackQuality(
-              !videoState.nowPlayingData ? "medium" : "hd1080"
+              !videoState.nowPlayingData ? "tiny" : "hd1080"
             );
             event.target.playVideo();
             // Chỉ seek time khi có video chính
