@@ -68,8 +68,27 @@ const YouTubePlayer = () => {
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // Thêm constant cho fallback video ID
-  const FALLBACK_VIDEO_ID = "IcrbM1l_BoI"; // Avicii - Wake Me Up
+  // Danh sách các fallback video ID
+  const FALLBACK_VIDEO_IDS = [
+    "IcrbM1l_BoI", // Avicii - Wake Me Up
+    "kJQP7kiw5Fk", // Luis Fonsi - Despacito
+    "60ItHLz5WEA", // Alan Walker - Faded
+    "JGwWNGJdvx8", // Ed Sheeran - Shape of You
+    "CevxZvSJLk8", // Katy Perry - Roar
+    "pXASS-75Dkg", // Sơn Tùng M-TP - Chúng Ta Của Hiện Tại
+    "Llw9Q6akRo4", // HIEUTHUHAI, NEGAV - Không Thể Say
+    "Wvt7Mklz-Nk", // Phí Phương Anh - Cắt Đôi Nỗi Sầu
+    "gdZLi9oWNZg", // BTS - Dynamite
+    "H5v3kku4y6Q", // BLACKPINK - How You Like That
+    "GUhF8lxPLf8", // AMEE - Đen Đá Không Đường
+    "j_v5l5VxKEw", // Phương Ly - Thằng Điên
+  ];
+
+  // Chọn ngẫu nhiên một video ID từ danh sách
+  const [FALLBACK_VIDEO_ID, setFallbackVideoID] = useState(
+    FALLBACK_VIDEO_IDS[Math.floor(Math.random() * FALLBACK_VIDEO_IDS.length)]
+  );
+
   // Thêm option audio-only
   const AUDIO_ONLY_MODE = true;
 
@@ -516,6 +535,14 @@ const YouTubePlayer = () => {
       const logoImg = new Image();
       logoImg.src = logo;
 
+      // Chọn ngẫu nhiên một fallback video ID
+      const randomID =
+        FALLBACK_VIDEO_IDS[
+          Math.floor(Math.random() * FALLBACK_VIDEO_IDS.length)
+        ];
+      console.log("Chọn fallback video ID:", randomID);
+      setFallbackVideoID(randomID);
+
       // Preload YouTube API
       const tag = document.createElement("script");
       tag.src = "https://www.youtube.com/iframe_api";
@@ -526,11 +553,17 @@ const YouTubePlayer = () => {
     preloadResources();
 
     (window as any).onYouTubeIframeAPIReady = () => {
+      console.log("YouTube iframe API ready, initializing player with:", {
+        videoId: videoState.nowPlayingData?.video_id || FALLBACK_VIDEO_ID,
+        fallbackMode: !videoState.nowPlayingData,
+        audioOnly: AUDIO_ONLY_MODE,
+      });
+
       playerRef.current = new (window as any).YT.Player("youtube-player", {
         // Chỉ sử dụng FALLBACK_VIDEO_ID khi không có nowPlayingData
-        videoId:
-          videoState.nowPlayingData?.video_id ||
-          (!videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined),
+        videoId: videoState.nowPlayingData?.video_id || FALLBACK_VIDEO_ID,
+        width: "100%",
+        height: "100%",
         playerVars: {
           autoplay: 1,
           controls: 0,
@@ -549,6 +582,7 @@ const YouTubePlayer = () => {
         },
         events: {
           onReady: (event: any) => {
+            console.log("YouTube player ready, playing video...");
             // Đặt chất lượng video: thấp nhất cho fallback, tự động cho video thường
             event.target.setPlaybackQuality(
               !videoState.nowPlayingData ? "tiny" : "auto"
@@ -933,11 +967,10 @@ const YouTubePlayer = () => {
             display: none !important;
           }
 
-          /* Ẩn iframe khi có lỗi */
-          #youtube-player iframe {
+          /* Ẩn iframe khi có lỗi - chỉ ẩn opacity nhưng vẫn giữ z-index để iframe có thể hoạt động */
+          #youtube-player iframe.error-mode {
             opacity: 0 !important;
             pointer-events: none !important;
-            z-index: -1 !important;
           }
         `}
       </style>
@@ -1031,7 +1064,7 @@ const YouTubePlayer = () => {
           backupState.backupVideoReady
             ? "hidden"
             : backupState.youtubeError
-            ? "opacity-0 pointer-events-none"
+            ? "opacity-50 pointer-events-none"
             : "visible"
         }`}
       ></div>
@@ -1116,7 +1149,28 @@ const YouTubePlayer = () => {
             <div className="w-3 h-3 rounded-full bg-pink-500 mr-3 animate-pulse"></div>
             <p className="text-white text-sm">
               Đang phát:{" "}
-              <span className="font-semibold">Avicii - Wake Me Up</span>
+              <span className="font-semibold">
+                {FALLBACK_VIDEO_ID === "IcrbM1l_BoI" && "Avicii - Wake Me Up"}
+                {FALLBACK_VIDEO_ID === "kJQP7kiw5Fk" &&
+                  "Luis Fonsi - Despacito"}
+                {FALLBACK_VIDEO_ID === "60ItHLz5WEA" && "Alan Walker - Faded"}
+                {FALLBACK_VIDEO_ID === "JGwWNGJdvx8" &&
+                  "Ed Sheeran - Shape of You"}
+                {FALLBACK_VIDEO_ID === "CevxZvSJLk8" && "Katy Perry - Roar"}
+                {FALLBACK_VIDEO_ID === "pXASS-75Dkg" &&
+                  "Sơn Tùng M-TP - Chúng Ta Của Hiện Tại"}
+                {FALLBACK_VIDEO_ID === "Llw9Q6akRo4" &&
+                  "HIEUTHUHAI, NEGAV - Không Thể Say"}
+                {FALLBACK_VIDEO_ID === "Wvt7Mklz-Nk" &&
+                  "Phí Phương Anh - Cắt Đôi Nỗi Sầu"}
+                {FALLBACK_VIDEO_ID === "gdZLi9oWNZg" && "BTS - Dynamite"}
+                {FALLBACK_VIDEO_ID === "H5v3kku4y6Q" &&
+                  "BLACKPINK - How You Like That"}
+                {FALLBACK_VIDEO_ID === "GUhF8lxPLf8" &&
+                  "AMEE - Đen Đá Không Đường"}
+                {FALLBACK_VIDEO_ID === "j_v5l5VxKEw" &&
+                  "Phương Ly - Thằng Điên"}
+              </span>
             </p>
           </div>
 
