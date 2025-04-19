@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import axios from "axios";
@@ -59,6 +58,9 @@ const YouTubePlayer = () => {
     youtubeError: false,
   });
 
+  console.log("videoState", videoState);
+  console.log("backupState", backupState);
+
   // Thêm state mới
   const [isChangingSong, setIsChangingSong] = useState(false);
 
@@ -66,9 +68,9 @@ const YouTubePlayer = () => {
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // Sử dụng một video cố định thay vì mảng
-  const FALLBACK_VIDEO_ID = "60ItHLz5WEA"; // Alan Walker - Faded
-  const FALLBACK_VIDEO_TITLE = "Alan Walker - Faded";
+  // Thêm constant cho fallback video ID
+  // đổi thành id của video bài hát Xin chào Việt Nam
+  const FALLBACK_VIDEO_ID = "j9VLOXdx9VQ";
 
   const cuteMessages = [
     "Jozo có xịn không nào? Chọn bài đi bạn ơi! 🎵",
@@ -180,6 +182,9 @@ const YouTubePlayer = () => {
       genre: "Ballad",
     },
   ];
+
+  // Thêm state cho Powered by Jozo
+  const [showPoweredBy, setShowPoweredBy] = useState(true);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -311,7 +316,7 @@ const YouTubePlayer = () => {
         currentVideoId: "",
       }));
 
-      // Load video chờ khi không có bài nào được chọn
+      // Load video đợi
       if (playerRef.current?.loadVideoById) {
         playerRef.current.loadVideoById({
           videoId: FALLBACK_VIDEO_ID,
@@ -402,68 +407,32 @@ const YouTubePlayer = () => {
   const handleYouTubeError = useCallback(async () => {
     // Lấy video ID từ player hoặc state
     const currentVideoData = playerRef.current?.getVideoData?.();
-    console.log("🔍 currentVideoData", currentVideoData);
+    console.log("currentVideoData", currentVideoData);
     const videoId =
       currentVideoData?.video_id ||
       videoState.nowPlayingData?.video_id ||
       videoState.currentVideoId;
 
-    // Lấy mã lỗi hiện tại (nếu có)
-    const errorCode = currentVideoData?.errorCode;
-    console.log("🚨 Xử lý lỗi YouTube:", {
-      videoId,
-      errorCode,
-      errorName: errorCode ? getYoutubeErrorName(Number(errorCode)) : "UNKNOWN",
-    });
-
     // Log để debug
-    console.log("🔎 Current video data:", {
+    console.log("Current video data:", {
       fromPlayer: currentVideoData?.video_id,
       fromNowPlaying: videoState.nowPlayingData?.video_id,
       fromState: videoState.currentVideoId,
       finalVideoId: videoId,
-      errorCode: currentVideoData?.errorCode,
-      errorDetail: currentVideoData?.errorDetail,
-      env: import.meta.env.MODE, // Ghi lại môi trường hiện tại (development/production)
-      userAgent: navigator.userAgent, // Ghi lại thông tin trình duyệt
-      iframeStatus: document.querySelector("#youtube-player iframe")
-        ? "exists"
-        : "missing",
     });
-
-    // Danh sách các ID video cần kiểm tra đặc biệt
-    const specialVideoIDs = ["wD09Vil2FAo", "bJ1Uph9XndU"];
-    const isSpecialVideo = specialVideoIDs.includes(videoId);
-
-    if (isSpecialVideo) {
-      console.log(
-        `🔴 Phát hiện video ID đặc biệt: ${videoId} - áp dụng xử lý đặc biệt`
-      );
-
-      // Gửi thông tin lên server về video đặc biệt
-      socket?.emit("special_video_detected", {
-        roomId,
-        videoId,
-        env: import.meta.env.MODE,
-        userAgent: navigator.userAgent,
-        timestamp: Date.now(),
-      });
-    }
 
     // Kiểm tra các điều kiện
     if (backupState.isLoadingBackup || backupState.backupUrl) {
-      console.log("⏳ Đang loading hoặc đã có backup URL");
+      console.log("Đang loading hoặc đã có backup URL");
       return;
     }
 
     if (!videoId || videoId.trim() === "") {
-      console.log("❌ Không có video ID hợp lệ");
+      console.log("Không có video ID hợp lệ");
       return;
     }
 
     try {
-      console.log("🔄 Bắt đầu lấy backup cho video:", videoId);
-
       setBackupState((prev) => ({
         ...prev,
         isLoadingBackup: true,
@@ -471,36 +440,14 @@ const YouTubePlayer = () => {
         youtubeError: true, // Đánh dấu là YouTube đang có lỗi
       }));
 
-      // Đối với video đặc biệt, thử cách tiếp cận khác nếu cần
-      let backupApiUrl = `${
+      const backupApiUrl = `${
         import.meta.env.VITE_API_BASE_URL
       }/room-music/${roomId}/${videoId}`;
+      console.log("Calling backup API:", backupApiUrl);
 
-      // Thêm tham số đặc biệt cho các video cần xử lý đặc biệt
-      if (isSpecialVideo) {
-        backupApiUrl += `?special=true&env=${import.meta.env.MODE}`;
-      }
-
-      console.log("📡 Calling backup API:", backupApiUrl);
-
-      // Thêm thông tin môi trường vào request
-      const response = await axios.get(backupApiUrl, {
-        headers: {
-          "X-Environment": import.meta.env.MODE,
-          "X-User-Agent": navigator.userAgent,
-          "X-Special-Video": isSpecialVideo ? "true" : "false",
-          "X-Error-Code": errorCode || "unknown",
-        },
-      });
-
-      console.log("✅ Backup API response:", response.data);
+      const response = await axios.get(backupApiUrl);
 
       if (response.data?.result?.url) {
-        console.log(
-          "✨ Đã nhận backup URL:",
-          response.data.result.url.substring(0, 50) + "..."
-        );
-
         setBackupState((prev) => ({
           ...prev,
           backupUrl: response.data.result.url,
@@ -508,28 +455,16 @@ const YouTubePlayer = () => {
           youtubeError: true, // Vẫn giữ trạng thái lỗi YouTube để ẩn iframe
         }));
       } else {
-        console.log("⚠️ API không trả về URL backup");
         throw new Error("Không có URL backup trong response");
       }
     } catch (error) {
-      console.error("❌ Lỗi khi lấy backup:", error);
+      console.error("Lỗi khi lấy backup:", error);
       setBackupState((prev) => ({
         ...prev,
         backupError: true,
         isLoadingBackup: false,
         youtubeError: true, // Vẫn đánh dấu YouTube lỗi
       }));
-
-      // Gửi thông tin lỗi chi tiết nếu là video đặc biệt
-      if (isSpecialVideo) {
-        socket?.emit("special_video_error", {
-          roomId,
-          videoId,
-          error: error instanceof Error ? error.message : String(error),
-          env: import.meta.env.MODE,
-          timestamp: Date.now(),
-        });
-      }
     }
   }, [
     videoState.nowPlayingData?.video_id,
@@ -537,7 +472,6 @@ const YouTubePlayer = () => {
     roomId,
     backupState.isLoadingBackup,
     backupState.backupUrl,
-    socket,
   ]);
 
   // Sửa lại phần xử lý lỗi YouTube trong useEffect
@@ -578,33 +512,18 @@ const YouTubePlayer = () => {
   ]);
 
   useEffect(() => {
-    // Preload YouTube API và các tài nguyên cần thiết
-    const preloadResources = async () => {
-      // Preload logo
-      const logoImg = new Image();
-      logoImg.src = logo;
-
-      // Preload YouTube API
-      const tag = document.createElement("script");
-      tag.src = "https://www.youtube.com/iframe_api";
-      const firstScriptTag = document.getElementsByTagName("script")[0];
-      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-    };
-
-    preloadResources();
+    // Thêm script YouTube API
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName("script")[0];
+    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
 
     (window as any).onYouTubeIframeAPIReady = () => {
-      console.log("YouTube iframe API ready, initializing player with:", {
-        videoId: videoState.nowPlayingData?.video_id || FALLBACK_VIDEO_ID,
-        fallbackMode: !videoState.nowPlayingData,
-        fallbackVideoId: FALLBACK_VIDEO_ID, // Log FALLBACK_VIDEO_ID
-      });
-
       playerRef.current = new (window as any).YT.Player("youtube-player", {
         // Chỉ sử dụng FALLBACK_VIDEO_ID khi không có nowPlayingData
-        videoId: videoState.nowPlayingData?.video_id || FALLBACK_VIDEO_ID,
-        width: "100%",
-        height: "100%",
+        videoId:
+          videoState.nowPlayingData?.video_id ||
+          (!videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined),
         playerVars: {
           autoplay: 1,
           controls: 0,
@@ -615,7 +534,7 @@ const YouTubePlayer = () => {
           enablejsapi: 1,
           origin: window.location.origin,
           disablekb: 1,
-          vq: !videoState.nowPlayingData ? "tiny" : "auto",
+          vq: !videoState.nowPlayingData ? "tiny" : "hd1080",
           showinfo: 0,
           // Chỉ loop khi không có nowPlayingData
           loop: !videoState.nowPlayingData ? 1 : 0,
@@ -623,24 +542,9 @@ const YouTubePlayer = () => {
         },
         events: {
           onReady: (event: any) => {
-            console.log("YouTube player ready, playing video...");
-            console.log(
-              "Player current video ID:",
-              event.target.getVideoData()?.video_id
-            );
-            console.log("nowPlayingData:", videoState.nowPlayingData);
-            console.log(
-              "Using fallback:",
-              !videoState.nowPlayingData,
-              "FALLBACK_VIDEO_ID:",
-              FALLBACK_VIDEO_ID
-            );
-
-            // Đặt chất lượng video: thấp nhất cho fallback, tự động cho video thường
             event.target.setPlaybackQuality(
-              !videoState.nowPlayingData ? "tiny" : "auto"
+              !videoState.nowPlayingData ? "tiny" : "hd1080"
             );
-
             event.target.playVideo();
             // Chỉ seek time khi có video chính
             if (videoState.nowPlayingData) {
@@ -683,40 +587,7 @@ const YouTubePlayer = () => {
             console.log("Quality changed:", event.data);
           },
           onError: async (event: any) => {
-            const errorCode = event.data;
-            const errorName = getYoutubeErrorName(errorCode);
-
-            console.log(
-              `🔴 YouTube Error ${errorCode} (${errorName}) occurred:`,
-              {
-                errorCode: errorCode,
-                errorName: errorName,
-                videoId:
-                  playerRef.current?.getVideoData?.()?.video_id ||
-                  videoState.nowPlayingData?.video_id,
-                env: import.meta.env.MODE,
-                embeddable: playerRef.current?.getVideoData?.()?.embeddable,
-                errorDetail: event.target?.getPlayerState?.() || "unknown",
-              }
-            );
-
-            // Thêm xử lý đặc biệt cho lỗi 150 (EMBED_NOT_ALLOWED)
-            if (errorCode === 150 || errorCode === 101) {
-              console.log(
-                `🚫 EMBED_NOT_ALLOWED cho video: ${
-                  playerRef.current?.getVideoData?.()?.video_id ||
-                  videoState.nowPlayingData?.video_id ||
-                  videoState.currentVideoId
-                }`
-              );
-
-              // Lưu mã lỗi vào playerRef để sử dụng trong handleYouTubeError
-              if (playerRef.current?.getVideoData) {
-                const videoData = playerRef.current.getVideoData();
-                videoData.errorCode = errorCode;
-              }
-            }
-
+            console.log("YouTube Error occurred:", event.data);
             setIsChangingSong(false);
 
             // Đánh dấu YouTube có lỗi trước khi gọi handleYouTubeError
@@ -732,9 +603,7 @@ const YouTubePlayer = () => {
               videoId:
                 videoState.nowPlayingData?.video_id ||
                 videoState.currentVideoId,
-              errorCode: errorCode,
-              errorName: errorName,
-              env: import.meta.env.MODE,
+              errorCode: event.data,
             });
           },
         },
@@ -979,157 +848,52 @@ const YouTubePlayer = () => {
     }
   }, [volume, backupState.backupUrl]);
 
-  // Thêm useEffect để xử lý xung đột phát nhạc
   useEffect(() => {
-    // Khi có backup URL và backup video đã sẵn sàng, tạm dừng video YouTube
-    if (
-      backupState.backupUrl &&
-      backupState.backupVideoReady &&
-      playerRef.current
-    ) {
-      console.log("Backup video ready, pausing YouTube player");
-      try {
-        // Mute trước khi pause để tránh tiếng ồn
-        playerRef.current.mute();
-        playerRef.current.pauseVideo();
+    // Xử lý hiển thị Powered by Jozo khi bắt đầu video
+    if (videoState.nowPlayingData) {
+      // Hiển thị khi bắt đầu
+      setShowPoweredBy(true);
 
-        // Ẩn hoàn toàn iframe YouTube
-        const iframe = document.querySelector(
-          "#youtube-player iframe"
-        ) as HTMLIFrameElement;
-        if (iframe) {
-          iframe.style.opacity = "0";
-          iframe.style.pointerEvents = "none";
-          iframe.style.display = "none"; // Ẩn hoàn toàn
-        }
-      } catch (error) {
-        console.error("Error pausing YouTube player:", error);
-      }
+      // Ẩn sau 6 giây
+      const hideTimer = setTimeout(() => {
+        setShowPoweredBy(false);
+      }, 6000);
+
+      // Hiển thị lại giữa bài
+      const midwayTimer = setTimeout(() => {
+        setShowPoweredBy(true);
+
+        // Ẩn sau 3 giây
+        setTimeout(() => {
+          setShowPoweredBy(false);
+        }, 3000);
+      }, playerRef.current?.getDuration() * 500); // Khoảng giữa bài (50%)
+
+      return () => {
+        clearTimeout(hideTimer);
+        clearTimeout(midwayTimer);
+      };
     }
-  }, [backupState.backupUrl, backupState.backupVideoReady]);
+  }, [videoState.nowPlayingData?.video_id]);
 
-  // Thêm hàm để chuyển đổi mã lỗi YouTube thành tên dễ đọc
-  const getYoutubeErrorName = (errorCode: number): string => {
-    switch (errorCode) {
-      case 2:
-        return "INVALID_PARAMETER";
-      case 5:
-        return "HTML5_PLAYER_ERROR";
-      case 100:
-        return "VIDEO_NOT_FOUND";
-      case 101:
-        return "EMBED_NOT_ALLOWED";
-      case 150:
-        return "EMBED_NOT_ALLOWED";
-      default:
-        return `UNKNOWN_ERROR_${errorCode}`;
-    }
-  };
-
-  // Thêm useEffect mới để đảm bảo fallback video được phát khi không có nowPlayingData
+  // Theo dõi thời gian phát để hiển thị Powered by Jozo khi kết thúc
   useEffect(() => {
-    // Chỉ phát nhạc chờ nếu không có nowPlayingData VÀ socket đã kết nối
-    if (
-      !videoState.nowPlayingData &&
-      playerRef.current?.loadVideoById &&
-      socket
-    ) {
-      // Kiểm tra xem trong phòng có bài hát nào đang phát không
-      socket.emit("check_now_playing", { roomId }, (response: any) => {
-        // Nếu không có bài nào đang phát trong phòng, thì mới phát nhạc chờ
-        if (!response?.nowPlaying) {
-          console.log(
-            "Không có bài hát nào đang phát trong phòng, phát nhạc chờ:",
-            FALLBACK_VIDEO_ID
-          );
-          playerRef.current?.loadVideoById({
-            videoId: FALLBACK_VIDEO_ID,
-            startSeconds: 0,
-          });
-        } else {
-          console.log(
-            "Đã có bài hát đang phát trong phòng:",
-            response?.nowPlaying
-          );
-        }
-      });
-    }
-  }, [videoState.nowPlayingData, socket, roomId]);
+    if (!videoState.nowPlayingData || !playerRef.current) return;
 
-  // Thêm useEffect mới để xử lý trường hợp YouTube API bị lỗi
-  useEffect(() => {
-    // Nếu sau 5 giây video vẫn không load được, thử load lại
-    const timeoutId = setTimeout(() => {
-      if (playerRef.current && !videoState.nowPlayingData) {
-        console.log(
-          "Fallback video không tải được sau 5 giây, đang thử lại..."
-        );
-        try {
-          if (
-            playerRef.current.getPlayerState &&
-            playerRef.current.getPlayerState() !== 1
-          ) {
-            console.log(
-              "Player không trong trạng thái đang phát, thử load lại video:",
-              FALLBACK_VIDEO_ID
-            );
-            playerRef.current.loadVideoById({
-              videoId: FALLBACK_VIDEO_ID,
-              startSeconds: 0,
-            });
-          }
-        } catch (error) {
-          console.error("Lỗi khi thử phát lại video fallback:", error);
+    const checkEndingInterval = setInterval(() => {
+      if (playerRef.current?.getCurrentTime && playerRef.current?.getDuration) {
+        const currentTime = playerRef.current.getCurrentTime();
+        const duration = playerRef.current.getDuration();
+
+        // Hiển thị trong 10 giây cuối
+        if (duration - currentTime <= 10 && !showPoweredBy) {
+          setShowPoweredBy(true);
         }
       }
-    }, 5000);
+    }, 1000);
 
-    return () => clearTimeout(timeoutId);
-  }, [videoState.nowPlayingData]);
-
-  useEffect(() => {
-    // Kiểm tra trạng thái player mỗi 10 giây nếu không có video chính
-    const intervalId = setInterval(() => {
-      if (playerRef.current && !videoState.nowPlayingData && socket) {
-        // Kiểm tra xem trong phòng có bài hát nào đang phát không
-        socket.emit("check_now_playing", { roomId }, (response: any) => {
-          // Chỉ tải lại fallback nếu không có bài nào đang phát trong phòng
-          if (!response?.nowPlaying) {
-            try {
-              const playerState = playerRef.current.getPlayerState?.() || -1;
-              const videoData = playerRef.current.getVideoData?.() || {};
-
-              console.log("Kiểm tra player:", {
-                playerState,
-                videoId: videoData.video_id,
-                expectedId: FALLBACK_VIDEO_ID,
-              });
-
-              // Nếu video_id không khớp với fallback hoặc player không phát
-              if (
-                !videoData.video_id ||
-                videoData.video_id !== FALLBACK_VIDEO_ID ||
-                (playerState !== 1 && playerState !== 3)
-              ) {
-                console.log(
-                  "Player không phát nhạc chờ, tải lại:",
-                  FALLBACK_VIDEO_ID
-                );
-                playerRef.current.loadVideoById({
-                  videoId: FALLBACK_VIDEO_ID,
-                  startSeconds: 0,
-                });
-              }
-            } catch (error) {
-              console.error("Lỗi khi kiểm tra trạng thái player:", error);
-            }
-          }
-        });
-      }
-    }, 10000);
-
-    return () => clearInterval(intervalId);
-  }, [videoState.nowPlayingData, socket, roomId]);
+    return () => clearInterval(checkEndingInterval);
+  }, [videoState.nowPlayingData, showPoweredBy]);
 
   return (
     <div
@@ -1195,10 +959,11 @@ const YouTubePlayer = () => {
             display: none !important;
           }
 
-          /* Ẩn iframe khi có lỗi - chỉ ẩn opacity nhưng vẫn giữ z-index để iframe có thể hoạt động */
-          #youtube-player iframe.error-mode {
+          /* Ẩn iframe khi có lỗi */
+          #youtube-player iframe {
             opacity: 0 !important;
             pointer-events: none !important;
+            z-index: -1 !important;
           }
         `}
       </style>
@@ -1235,16 +1000,6 @@ const YouTubePlayer = () => {
                 ...prev,
                 backupVideoReady: true,
               }));
-
-              // Tạm dừng YouTube player nếu đang chạy
-              if (playerRef.current) {
-                try {
-                  playerRef.current.mute();
-                  playerRef.current.pauseVideo();
-                } catch (error) {
-                  console.error("Error pausing YouTube player:", error);
-                }
-              }
 
               socket?.emit("video_ready", {
                 roomId,
@@ -1305,14 +1060,6 @@ const YouTubePlayer = () => {
             ? "opacity-0 pointer-events-none"
             : "visible"
         }`}
-        style={{
-          display:
-            backupState.backupUrl &&
-            !backupState.backupError &&
-            backupState.backupVideoReady
-              ? "none"
-              : "block",
-        }}
       ></div>
 
       {/* Hiển thị màn hình lỗi YouTube khi không có backup */}
@@ -1375,40 +1122,29 @@ const YouTubePlayer = () => {
 
       {/* Fallback overlay - hiển thị khi không có bài hát nào đang phát */}
       {!videoState.nowPlayingData?.video_id && (
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/90 via-black/95 to-pink-900/90 z-[30] flex flex-col items-center justify-start pt-8">
-          <div className="relative mb-4">
+        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/90 via-black/95 to-pink-900/90 z-[30] flex flex-col items-center justify-center">
+          <div className="relative mb-8">
             <img
               src={logo}
               alt="logo"
-              className="w-24 h-24 object-contain animate-[pulse_3s_ease-in-out_infinite] drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]"
+              className="w-32 h-32 object-contain animate-[bounce_6s_ease-in-out_infinite] drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]"
             />
+            <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/5 to-transparent animate-[pulse_2s_ease-in-out_infinite]"></div>
           </div>
 
-          <div className="px-8 py-3 rounded-xl bg-black/30 backdrop-blur-sm border border-white/10 shadow-[0_0_15px_rgba(0,0,0,0.3)] mb-5 max-w-[90%]">
-            <p className="text-white text-lg font-bold text-center">
+          <div className="px-8 py-4 rounded-2xl bg-black/30 backdrop-blur-sm border border-white/10 shadow-[0_0_15px_rgba(0,0,0,0.3)] mb-8">
+            <p className="text-white text-xl font-bold text-center animate-bounce">
               {cuteMessages[currentMessageIndex]}
             </p>
           </div>
 
-          {/* Hiển thị thông tin về nhạc nền đang phát */}
-          <div className="px-6 py-2 bg-black/20 backdrop-blur-sm rounded-full mb-5 flex items-center">
-            <div className="w-3 h-3 rounded-full bg-pink-500 mr-3 animate-pulse"></div>
-            <p className="text-white text-sm">
-              Đang phát:{" "}
-              <span className="font-semibold">{FALLBACK_VIDEO_TITLE}</span>
-            </p>
-          </div>
-
           {/* Danh sách nhạc trending */}
-          <div
-            className="w-full max-w-4xl px-6 overflow-y-auto"
-            style={{ maxHeight: "calc(100vh - 240px)" }}
-          >
-            <div className="bg-black/40 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
-              <h3 className="text-white text-lg font-bold mb-4 flex items-center">
+          <div className="w-full max-w-3xl px-6">
+            <div className="bg-black/40 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
+              <h3 className="text-white text-xl font-bold mb-6 flex items-center">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className="h-5 w-5 mr-2 text-pink-500"
+                  className="h-6 w-6 mr-2 text-pink-500"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -1423,34 +1159,34 @@ const YouTubePlayer = () => {
                 Đang Thịnh Hành
               </h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {trendingSongs.map((song, index) => (
                   <div
                     key={index}
-                    className="flex items-center justify-between p-2 rounded-lg hover:bg-white/5 transition-colors group border border-white/5"
+                    className="flex items-center justify-between p-3 rounded-lg hover:bg-white/5 transition-colors group border border-white/5"
                   >
                     <div className="flex items-center flex-1 min-w-0">
-                      <span className="text-xl font-bold text-white/50 w-6 shrink-0">
+                      <span className="text-2xl font-bold text-white/50 w-8 shrink-0">
                         {index + 1}
                       </span>
-                      <div className="ml-3 truncate">
+                      <div className="ml-4 truncate">
                         <p className="text-white font-semibold group-hover:text-pink-500 transition-colors truncate">
                           {song.title}
                         </p>
                         <div className="flex items-center gap-2">
-                          <p className="text-white/60 text-xs truncate">
+                          <p className="text-white/60 text-sm truncate">
                             {song.artist}
                           </p>
-                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/10 text-white/80">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/80">
                             {song.genre}
                           </span>
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center text-white/60 text-xs ml-3 shrink-0">
+                    <div className="flex items-center text-white/60 text-sm ml-4 shrink-0">
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        className="h-3 w-3 mr-1"
+                        className="h-4 w-4 mr-1"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -1549,6 +1285,101 @@ const YouTubePlayer = () => {
           Âm lượng: {volumeToast.value}%
         </span>
       </div>
+
+      {/* Powered by Jozo - xuất hiện trong 4 giây đầu tiên, giữa bài và khi kết thúc */}
+      {(showPoweredBy || !videoState.nowPlayingData) && (
+        <div className="absolute bottom-3 right-3 z-50">
+          <div className="bg-black/75 px-3 py-1.5 rounded-lg shadow-lg border border-pink-500/30 flex items-center animate-[pulse_3s_ease-in-out_infinite]">
+            <span className="text-white text-sm font-medium mr-1">
+              Powered by
+            </span>
+            <span className="text-gradient bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-purple-500 font-bold text-sm">
+              Jozo
+            </span>
+            <div className="h-2 w-2 rounded-full bg-pink-500 ml-1.5 animate-[ping_1.5s_ease-in-out_infinite]"></div>
+          </div>
+        </div>
+      )}
+
+      {/* CSS cho text gradient */}
+      <style>
+        {`
+          /* CSS cho text gradient */
+          .text-gradient {
+            background-size: 100%;
+            background-clip: text;
+            -webkit-background-clip: text;
+            -moz-background-clip: text;
+            -webkit-text-fill-color: transparent; 
+            -moz-text-fill-color: transparent;
+          }
+          
+          /* Thêm animation cho pulse */
+          @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.85; transform: scale(1.05); }
+          }
+          
+          /* Thêm animation cho ping */
+          @keyframes ping {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.5); opacity: 0.5; }
+          }
+          
+          /* Ẩn tất cả các điều khiển và thông tin của YouTube */
+          .ytp-chrome-top,
+          .ytp-chrome-bottom,
+          .ytp-gradient-top,
+          .ytp-gradient-bottom,
+          .ytp-pause-overlay,
+          .ytp-share-button,
+          .ytp-watch-later-button,
+          .ytp-watermark,
+          .ytp-youtube-button,
+          .ytp-progress-bar-container,
+          .ytp-time-display,
+          .ytp-volume-panel,
+          .ytp-menuitem,
+          .ytp-spinner,
+          .ytp-contextmenu,
+          .ytp-ce-element,
+          .ytp-ce-covering-overlay,
+          .ytp-ce-element-shadow,
+          .ytp-ce-covering-image,
+          .ytp-ce-expanding-image,
+          .ytp-ce-rendered-image,
+          .ytp-endscreen-content,
+          .ytp-suggested-video-overlay,
+          .ytp-pause-overlay-container,
+          /* Thêm các class mới để ẩn video đề xuất */
+          .ytp-endscreen-previous,
+          .ytp-endscreen-next,
+          .ytp-player-content,
+          .html5-endscreen,
+          .ytp-player-content videowall-endscreen,
+          .ytp-show-tiles .ytp-videowall-still,
+          .ytp-endscreen-content {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+          }
+
+          /* Ẩn màn hình lỗi YouTube */
+          .ytp-error,
+          .ytp-error-content-wrap,
+          .ytp-error-content-wrap-reason {
+            display: none !important;
+          }
+
+          /* Ẩn iframe khi có lỗi */
+          #youtube-player iframe {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            z-index: -1 !important;
+          }
+        `}
+      </style>
     </div>
   );
 };
