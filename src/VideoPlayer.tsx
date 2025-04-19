@@ -441,7 +441,29 @@ const YouTubePlayer = () => {
       errorDetail: currentVideoData?.errorDetail,
       env: import.meta.env.MODE, // Ghi lại môi trường hiện tại (development/production)
       userAgent: navigator.userAgent, // Ghi lại thông tin trình duyệt
+      iframeStatus: document.querySelector("#youtube-player iframe")
+        ? "exists"
+        : "missing",
     });
+
+    // Danh sách các ID video cần kiểm tra đặc biệt
+    const specialVideoIDs = ["wD09Vil2FAo", "bJ1Uph9XndU"];
+    const isSpecialVideo = specialVideoIDs.includes(videoId);
+
+    if (isSpecialVideo) {
+      console.log(
+        `Phát hiện video ID đặc biệt: ${videoId} - áp dụng xử lý đặc biệt`
+      );
+
+      // Gửi thông tin lên server về video đặc biệt
+      socket?.emit("special_video_detected", {
+        roomId,
+        videoId,
+        env: import.meta.env.MODE,
+        userAgent: navigator.userAgent,
+        timestamp: Date.now(),
+      });
+    }
 
     // Kiểm tra các điều kiện
     if (backupState.isLoadingBackup || backupState.backupUrl) {
@@ -454,13 +476,6 @@ const YouTubePlayer = () => {
       return;
     }
 
-    // Kiểm tra xem video ID có phải là wD09Vil2FAo không
-    if (videoId === "wD09Vil2FAo") {
-      console.log(
-        "Phát hiện video ID đặc biệt: wD09Vil2FAo - có thể cần xử lý đặc biệt"
-      );
-    }
-
     try {
       setBackupState((prev) => ({
         ...prev,
@@ -469,9 +484,16 @@ const YouTubePlayer = () => {
         youtubeError: true, // Đánh dấu là YouTube đang có lỗi
       }));
 
-      const backupApiUrl = `${
+      // Đối với video đặc biệt, thử cách tiếp cận khác nếu cần
+      let backupApiUrl = `${
         import.meta.env.VITE_API_BASE_URL
       }/room-music/${roomId}/${videoId}`;
+
+      // Thêm tham số đặc biệt cho các video cần xử lý đặc biệt
+      if (isSpecialVideo) {
+        backupApiUrl += `?special=true&env=${import.meta.env.MODE}`;
+      }
+
       console.log("Calling backup API:", backupApiUrl);
 
       // Thêm thông tin môi trường vào request
@@ -479,6 +501,7 @@ const YouTubePlayer = () => {
         headers: {
           "X-Environment": import.meta.env.MODE,
           "X-User-Agent": navigator.userAgent,
+          "X-Special-Video": isSpecialVideo ? "true" : "false",
         },
       });
 
@@ -500,6 +523,17 @@ const YouTubePlayer = () => {
         isLoadingBackup: false,
         youtubeError: true, // Vẫn đánh dấu YouTube lỗi
       }));
+
+      // Gửi thông tin lỗi chi tiết nếu là video đặc biệt
+      if (isSpecialVideo) {
+        socket?.emit("special_video_error", {
+          roomId,
+          videoId,
+          error: error instanceof Error ? error.message : String(error),
+          env: import.meta.env.MODE,
+          timestamp: Date.now(),
+        });
+      }
     }
   }, [
     videoState.nowPlayingData?.video_id,
@@ -507,6 +541,7 @@ const YouTubePlayer = () => {
     roomId,
     backupState.isLoadingBackup,
     backupState.backupUrl,
+    socket,
   ]);
 
   // Sửa lại phần xử lý lỗi YouTube trong useEffect
@@ -665,6 +700,7 @@ const YouTubePlayer = () => {
               videoId:
                 playerRef.current?.getVideoData?.()?.video_id ||
                 videoState.nowPlayingData?.video_id,
+              errorName: getYoutubeErrorName(event.data),
               env: import.meta.env.MODE,
               embeddable: playerRef.current?.getVideoData?.()?.embeddable,
               errorDetail: event.target?.getPlayerState?.() || "unknown",
@@ -685,6 +721,7 @@ const YouTubePlayer = () => {
                 videoState.nowPlayingData?.video_id ||
                 videoState.currentVideoId,
               errorCode: event.data,
+              errorName: getYoutubeErrorName(event.data),
               env: import.meta.env.MODE,
             });
           },
@@ -958,6 +995,24 @@ const YouTubePlayer = () => {
       }
     }
   }, [backupState.backupUrl, backupState.backupVideoReady]);
+
+  // Thêm hàm để chuyển đổi mã lỗi YouTube thành tên dễ đọc
+  const getYoutubeErrorName = (errorCode: number): string => {
+    switch (errorCode) {
+      case 2:
+        return "INVALID_PARAMETER";
+      case 5:
+        return "HTML5_PLAYER_ERROR";
+      case 100:
+        return "VIDEO_NOT_FOUND";
+      case 101:
+        return "EMBED_NOT_ALLOWED";
+      case 150:
+        return "EMBED_NOT_ALLOWED";
+      default:
+        return `UNKNOWN_ERROR_${errorCode}`;
+    }
+  };
 
   return (
     <div
