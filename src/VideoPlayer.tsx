@@ -425,14 +425,22 @@ const YouTubePlayer = () => {
   const handleYouTubeError = useCallback(async () => {
     // Lấy video ID từ player hoặc state
     const currentVideoData = playerRef.current?.getVideoData?.();
-    console.log("currentVideoData", currentVideoData);
+    console.log("🔍 currentVideoData", currentVideoData);
     const videoId =
       currentVideoData?.video_id ||
       videoState.nowPlayingData?.video_id ||
       videoState.currentVideoId;
 
+    // Lấy mã lỗi hiện tại (nếu có)
+    const errorCode = currentVideoData?.errorCode;
+    console.log("🚨 Xử lý lỗi YouTube:", {
+      videoId,
+      errorCode,
+      errorName: errorCode ? getYoutubeErrorName(Number(errorCode)) : "UNKNOWN",
+    });
+
     // Log để debug
-    console.log("Current video data:", {
+    console.log("🔎 Current video data:", {
       fromPlayer: currentVideoData?.video_id,
       fromNowPlaying: videoState.nowPlayingData?.video_id,
       fromState: videoState.currentVideoId,
@@ -452,7 +460,7 @@ const YouTubePlayer = () => {
 
     if (isSpecialVideo) {
       console.log(
-        `Phát hiện video ID đặc biệt: ${videoId} - áp dụng xử lý đặc biệt`
+        `🔴 Phát hiện video ID đặc biệt: ${videoId} - áp dụng xử lý đặc biệt`
       );
 
       // Gửi thông tin lên server về video đặc biệt
@@ -467,16 +475,18 @@ const YouTubePlayer = () => {
 
     // Kiểm tra các điều kiện
     if (backupState.isLoadingBackup || backupState.backupUrl) {
-      console.log("Đang loading hoặc đã có backup URL");
+      console.log("⏳ Đang loading hoặc đã có backup URL");
       return;
     }
 
     if (!videoId || videoId.trim() === "") {
-      console.log("Không có video ID hợp lệ");
+      console.log("❌ Không có video ID hợp lệ");
       return;
     }
 
     try {
+      console.log("🔄 Bắt đầu lấy backup cho video:", videoId);
+
       setBackupState((prev) => ({
         ...prev,
         isLoadingBackup: true,
@@ -494,7 +504,7 @@ const YouTubePlayer = () => {
         backupApiUrl += `?special=true&env=${import.meta.env.MODE}`;
       }
 
-      console.log("Calling backup API:", backupApiUrl);
+      console.log("📡 Calling backup API:", backupApiUrl);
 
       // Thêm thông tin môi trường vào request
       const response = await axios.get(backupApiUrl, {
@@ -502,10 +512,18 @@ const YouTubePlayer = () => {
           "X-Environment": import.meta.env.MODE,
           "X-User-Agent": navigator.userAgent,
           "X-Special-Video": isSpecialVideo ? "true" : "false",
+          "X-Error-Code": errorCode || "unknown",
         },
       });
 
+      console.log("✅ Backup API response:", response.data);
+
       if (response.data?.result?.url) {
+        console.log(
+          "✨ Đã nhận backup URL:",
+          response.data.result.url.substring(0, 50) + "..."
+        );
+
         setBackupState((prev) => ({
           ...prev,
           backupUrl: response.data.result.url,
@@ -513,10 +531,11 @@ const YouTubePlayer = () => {
           youtubeError: true, // Vẫn giữ trạng thái lỗi YouTube để ẩn iframe
         }));
       } else {
+        console.log("⚠️ API không trả về URL backup");
         throw new Error("Không có URL backup trong response");
       }
     } catch (error) {
-      console.error("Lỗi khi lấy backup:", error);
+      console.error("❌ Lỗi khi lấy backup:", error);
       setBackupState((prev) => ({
         ...prev,
         backupError: true,
@@ -695,16 +714,40 @@ const YouTubePlayer = () => {
             console.log("Quality changed:", event.data);
           },
           onError: async (event: any) => {
-            console.log("YouTube Error occurred:", event.data, {
-              errorCode: event.data,
-              videoId:
-                playerRef.current?.getVideoData?.()?.video_id ||
-                videoState.nowPlayingData?.video_id,
-              errorName: getYoutubeErrorName(event.data),
-              env: import.meta.env.MODE,
-              embeddable: playerRef.current?.getVideoData?.()?.embeddable,
-              errorDetail: event.target?.getPlayerState?.() || "unknown",
-            });
+            const errorCode = event.data;
+            const errorName = getYoutubeErrorName(errorCode);
+
+            console.log(
+              `🔴 YouTube Error ${errorCode} (${errorName}) occurred:`,
+              {
+                errorCode: errorCode,
+                errorName: errorName,
+                videoId:
+                  playerRef.current?.getVideoData?.()?.video_id ||
+                  videoState.nowPlayingData?.video_id,
+                env: import.meta.env.MODE,
+                embeddable: playerRef.current?.getVideoData?.()?.embeddable,
+                errorDetail: event.target?.getPlayerState?.() || "unknown",
+              }
+            );
+
+            // Thêm xử lý đặc biệt cho lỗi 150 (EMBED_NOT_ALLOWED)
+            if (errorCode === 150 || errorCode === 101) {
+              console.log(
+                `🚫 EMBED_NOT_ALLOWED cho video: ${
+                  playerRef.current?.getVideoData?.()?.video_id ||
+                  videoState.nowPlayingData?.video_id ||
+                  videoState.currentVideoId
+                }`
+              );
+
+              // Lưu mã lỗi vào playerRef để sử dụng trong handleYouTubeError
+              if (playerRef.current?.getVideoData) {
+                const videoData = playerRef.current.getVideoData();
+                videoData.errorCode = errorCode;
+              }
+            }
+
             setIsChangingSong(false);
 
             // Đánh dấu YouTube có lỗi trước khi gọi handleYouTubeError
@@ -720,8 +763,8 @@ const YouTubePlayer = () => {
               videoId:
                 videoState.nowPlayingData?.video_id ||
                 videoState.currentVideoId,
-              errorCode: event.data,
-              errorName: getYoutubeErrorName(event.data),
+              errorCode: errorCode,
+              errorName: errorName,
               env: import.meta.env.MODE,
             });
           },
