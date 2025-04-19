@@ -69,9 +69,26 @@ const YouTubePlayer = () => {
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // Sử dụng một video cố định thay vì mảng
-  const FALLBACK_VIDEO_ID = "KUDWowZDVJ0"; // Hello Viet Nam - Pham Quynh Anh
-  const FALLBACK_VIDEO_TITLE = "Hello Viet Nam - Pham Quynh Anh";
+  // Danh sách các fallback video ID
+  const FALLBACK_VIDEO_IDS = [
+    "IcrbM1l_BoI", // Avicii - Wake Me Up
+    "kJQP7kiw5Fk", // Luis Fonsi - Despacito
+    "60ItHLz5WEA", // Alan Walker - Faded
+    "JGwWNGJdvx8", // Ed Sheeran - Shape of You
+    "CevxZvSJLk8", // Katy Perry - Roar
+    "pXASS-75Dkg", // Sơn Tùng M-TP - Chúng Ta Của Hiện Tại
+    "Llw9Q6akRo4", // HIEUTHUHAI, NEGAV - Không Thể Say
+    "Wvt7Mklz-Nk", // Phí Phương Anh - Cắt Đôi Nỗi Sầu
+    "gdZLi9oWNZg", // BTS - Dynamite
+    "H5v3kku4y6Q", // BLACKPINK - How You Like That
+    "GUhF8lxPLf8", // AMEE - Đen Đá Không Đường
+    "j_v5l5VxKEw", // Phương Ly - Thằng Điên
+  ];
+
+  // Chọn ngẫu nhiên một video ID từ danh sách
+  const [FALLBACK_VIDEO_ID, setFallbackVideoID] = useState(
+    FALLBACK_VIDEO_IDS[Math.floor(Math.random() * FALLBACK_VIDEO_IDS.length)]
+  );
 
   // Thêm option audio-only
   const AUDIO_ONLY_MODE = true;
@@ -408,22 +425,14 @@ const YouTubePlayer = () => {
   const handleYouTubeError = useCallback(async () => {
     // Lấy video ID từ player hoặc state
     const currentVideoData = playerRef.current?.getVideoData?.();
-    console.log("🔍 currentVideoData", currentVideoData);
+    console.log("currentVideoData", currentVideoData);
     const videoId =
       currentVideoData?.video_id ||
       videoState.nowPlayingData?.video_id ||
       videoState.currentVideoId;
 
-    // Lấy mã lỗi hiện tại (nếu có)
-    const errorCode = currentVideoData?.errorCode;
-    console.log("🚨 Xử lý lỗi YouTube:", {
-      videoId,
-      errorCode,
-      errorName: errorCode ? getYoutubeErrorName(Number(errorCode)) : "UNKNOWN",
-    });
-
     // Log để debug
-    console.log("🔎 Current video data:", {
+    console.log("Current video data:", {
       fromPlayer: currentVideoData?.video_id,
       fromNowPlaying: videoState.nowPlayingData?.video_id,
       fromState: videoState.currentVideoId,
@@ -432,44 +441,27 @@ const YouTubePlayer = () => {
       errorDetail: currentVideoData?.errorDetail,
       env: import.meta.env.MODE, // Ghi lại môi trường hiện tại (development/production)
       userAgent: navigator.userAgent, // Ghi lại thông tin trình duyệt
-      iframeStatus: document.querySelector("#youtube-player iframe")
-        ? "exists"
-        : "missing",
     });
-
-    // Danh sách các ID video cần kiểm tra đặc biệt
-    const specialVideoIDs = ["wD09Vil2FAo", "bJ1Uph9XndU"];
-    const isSpecialVideo = specialVideoIDs.includes(videoId);
-
-    if (isSpecialVideo) {
-      console.log(
-        `🔴 Phát hiện video ID đặc biệt: ${videoId} - áp dụng xử lý đặc biệt`
-      );
-
-      // Gửi thông tin lên server về video đặc biệt
-      socket?.emit("special_video_detected", {
-        roomId,
-        videoId,
-        env: import.meta.env.MODE,
-        userAgent: navigator.userAgent,
-        timestamp: Date.now(),
-      });
-    }
 
     // Kiểm tra các điều kiện
     if (backupState.isLoadingBackup || backupState.backupUrl) {
-      console.log("⏳ Đang loading hoặc đã có backup URL");
+      console.log("Đang loading hoặc đã có backup URL");
       return;
     }
 
     if (!videoId || videoId.trim() === "") {
-      console.log("❌ Không có video ID hợp lệ");
+      console.log("Không có video ID hợp lệ");
       return;
     }
 
-    try {
-      console.log("🔄 Bắt đầu lấy backup cho video:", videoId);
+    // Kiểm tra xem video ID có phải là wD09Vil2FAo không
+    if (videoId === "wD09Vil2FAo") {
+      console.log(
+        "Phát hiện video ID đặc biệt: wD09Vil2FAo - có thể cần xử lý đặc biệt"
+      );
+    }
 
+    try {
       setBackupState((prev) => ({
         ...prev,
         isLoadingBackup: true,
@@ -477,36 +469,20 @@ const YouTubePlayer = () => {
         youtubeError: true, // Đánh dấu là YouTube đang có lỗi
       }));
 
-      // Đối với video đặc biệt, thử cách tiếp cận khác nếu cần
-      let backupApiUrl = `${
+      const backupApiUrl = `${
         import.meta.env.VITE_API_BASE_URL
       }/room-music/${roomId}/${videoId}`;
-
-      // Thêm tham số đặc biệt cho các video cần xử lý đặc biệt
-      if (isSpecialVideo) {
-        backupApiUrl += `?special=true&env=${import.meta.env.MODE}`;
-      }
-
-      console.log("📡 Calling backup API:", backupApiUrl);
+      console.log("Calling backup API:", backupApiUrl);
 
       // Thêm thông tin môi trường vào request
       const response = await axios.get(backupApiUrl, {
         headers: {
           "X-Environment": import.meta.env.MODE,
           "X-User-Agent": navigator.userAgent,
-          "X-Special-Video": isSpecialVideo ? "true" : "false",
-          "X-Error-Code": errorCode || "unknown",
         },
       });
 
-      console.log("✅ Backup API response:", response.data);
-
       if (response.data?.result?.url) {
-        console.log(
-          "✨ Đã nhận backup URL:",
-          response.data.result.url.substring(0, 50) + "..."
-        );
-
         setBackupState((prev) => ({
           ...prev,
           backupUrl: response.data.result.url,
@@ -514,28 +490,16 @@ const YouTubePlayer = () => {
           youtubeError: true, // Vẫn giữ trạng thái lỗi YouTube để ẩn iframe
         }));
       } else {
-        console.log("⚠️ API không trả về URL backup");
         throw new Error("Không có URL backup trong response");
       }
     } catch (error) {
-      console.error("❌ Lỗi khi lấy backup:", error);
+      console.error("Lỗi khi lấy backup:", error);
       setBackupState((prev) => ({
         ...prev,
         backupError: true,
         isLoadingBackup: false,
         youtubeError: true, // Vẫn đánh dấu YouTube lỗi
       }));
-
-      // Gửi thông tin lỗi chi tiết nếu là video đặc biệt
-      if (isSpecialVideo) {
-        socket?.emit("special_video_error", {
-          roomId,
-          videoId,
-          error: error instanceof Error ? error.message : String(error),
-          env: import.meta.env.MODE,
-          timestamp: Date.now(),
-        });
-      }
     }
   }, [
     videoState.nowPlayingData?.video_id,
@@ -543,7 +507,6 @@ const YouTubePlayer = () => {
     roomId,
     backupState.isLoadingBackup,
     backupState.backupUrl,
-    socket,
   ]);
 
   // Sửa lại phần xử lý lỗi YouTube trong useEffect
@@ -589,6 +552,14 @@ const YouTubePlayer = () => {
       // Preload logo
       const logoImg = new Image();
       logoImg.src = logo;
+
+      // Chọn ngẫu nhiên một fallback video ID
+      const randomID =
+        FALLBACK_VIDEO_IDS[
+          Math.floor(Math.random() * FALLBACK_VIDEO_IDS.length)
+        ];
+      console.log("Chọn fallback video ID:", randomID);
+      setFallbackVideoID(randomID);
 
       // Preload YouTube API
       const tag = document.createElement("script");
@@ -689,40 +660,15 @@ const YouTubePlayer = () => {
             console.log("Quality changed:", event.data);
           },
           onError: async (event: any) => {
-            const errorCode = event.data;
-            const errorName = getYoutubeErrorName(errorCode);
-
-            console.log(
-              `🔴 YouTube Error ${errorCode} (${errorName}) occurred:`,
-              {
-                errorCode: errorCode,
-                errorName: errorName,
-                videoId:
-                  playerRef.current?.getVideoData?.()?.video_id ||
-                  videoState.nowPlayingData?.video_id,
-                env: import.meta.env.MODE,
-                embeddable: playerRef.current?.getVideoData?.()?.embeddable,
-                errorDetail: event.target?.getPlayerState?.() || "unknown",
-              }
-            );
-
-            // Thêm xử lý đặc biệt cho lỗi 150 (EMBED_NOT_ALLOWED)
-            if (errorCode === 150 || errorCode === 101) {
-              console.log(
-                `🚫 EMBED_NOT_ALLOWED cho video: ${
-                  playerRef.current?.getVideoData?.()?.video_id ||
-                  videoState.nowPlayingData?.video_id ||
-                  videoState.currentVideoId
-                }`
-              );
-
-              // Lưu mã lỗi vào playerRef để sử dụng trong handleYouTubeError
-              if (playerRef.current?.getVideoData) {
-                const videoData = playerRef.current.getVideoData();
-                videoData.errorCode = errorCode;
-              }
-            }
-
+            console.log("YouTube Error occurred:", event.data, {
+              errorCode: event.data,
+              videoId:
+                playerRef.current?.getVideoData?.()?.video_id ||
+                videoState.nowPlayingData?.video_id,
+              env: import.meta.env.MODE,
+              embeddable: playerRef.current?.getVideoData?.()?.embeddable,
+              errorDetail: event.target?.getPlayerState?.() || "unknown",
+            });
             setIsChangingSong(false);
 
             // Đánh dấu YouTube có lỗi trước khi gọi handleYouTubeError
@@ -738,8 +684,7 @@ const YouTubePlayer = () => {
               videoId:
                 videoState.nowPlayingData?.video_id ||
                 videoState.currentVideoId,
-              errorCode: errorCode,
-              errorName: errorName,
+              errorCode: event.data,
               env: import.meta.env.MODE,
             });
           },
@@ -1014,24 +959,6 @@ const YouTubePlayer = () => {
     }
   }, [backupState.backupUrl, backupState.backupVideoReady]);
 
-  // Thêm hàm để chuyển đổi mã lỗi YouTube thành tên dễ đọc
-  const getYoutubeErrorName = (errorCode: number): string => {
-    switch (errorCode) {
-      case 2:
-        return "INVALID_PARAMETER";
-      case 5:
-        return "HTML5_PLAYER_ERROR";
-      case 100:
-        return "VIDEO_NOT_FOUND";
-      case 101:
-        return "EMBED_NOT_ALLOWED";
-      case 150:
-        return "EMBED_NOT_ALLOWED";
-      default:
-        return `UNKNOWN_ERROR_${errorCode}`;
-    }
-  };
-
   return (
     <div
       ref={containerRef}
@@ -1296,7 +1223,28 @@ const YouTubePlayer = () => {
             <div className="w-3 h-3 rounded-full bg-pink-500 mr-3 animate-pulse"></div>
             <p className="text-white text-sm">
               Đang phát:{" "}
-              <span className="font-semibold">{FALLBACK_VIDEO_TITLE}</span>
+              <span className="font-semibold">
+                {FALLBACK_VIDEO_ID === "IcrbM1l_BoI" && "Avicii - Wake Me Up"}
+                {FALLBACK_VIDEO_ID === "kJQP7kiw5Fk" &&
+                  "Luis Fonsi - Despacito"}
+                {FALLBACK_VIDEO_ID === "60ItHLz5WEA" && "Alan Walker - Faded"}
+                {FALLBACK_VIDEO_ID === "JGwWNGJdvx8" &&
+                  "Ed Sheeran - Shape of You"}
+                {FALLBACK_VIDEO_ID === "CevxZvSJLk8" && "Katy Perry - Roar"}
+                {FALLBACK_VIDEO_ID === "pXASS-75Dkg" &&
+                  "Sơn Tùng M-TP - Chúng Ta Của Hiện Tại"}
+                {FALLBACK_VIDEO_ID === "Llw9Q6akRo4" &&
+                  "HIEUTHUHAI, NEGAV - Không Thể Say"}
+                {FALLBACK_VIDEO_ID === "Wvt7Mklz-Nk" &&
+                  "Phí Phương Anh - Cắt Đôi Nỗi Sầu"}
+                {FALLBACK_VIDEO_ID === "gdZLi9oWNZg" && "BTS - Dynamite"}
+                {FALLBACK_VIDEO_ID === "H5v3kku4y6Q" &&
+                  "BLACKPINK - How You Like That"}
+                {FALLBACK_VIDEO_ID === "GUhF8lxPLf8" &&
+                  "AMEE - Đen Đá Không Đường"}
+                {FALLBACK_VIDEO_ID === "j_v5l5VxKEw" &&
+                  "Phương Ly - Thằng Điên"}
+              </span>
             </p>
           </div>
 
