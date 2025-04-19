@@ -437,6 +437,10 @@ const YouTubePlayer = () => {
       fromNowPlaying: videoState.nowPlayingData?.video_id,
       fromState: videoState.currentVideoId,
       finalVideoId: videoId,
+      errorCode: currentVideoData?.errorCode,
+      errorDetail: currentVideoData?.errorDetail,
+      env: import.meta.env.MODE, // Ghi lại môi trường hiện tại (development/production)
+      userAgent: navigator.userAgent, // Ghi lại thông tin trình duyệt
     });
 
     // Kiểm tra các điều kiện
@@ -448,6 +452,13 @@ const YouTubePlayer = () => {
     if (!videoId || videoId.trim() === "") {
       console.log("Không có video ID hợp lệ");
       return;
+    }
+
+    // Kiểm tra xem video ID có phải là wD09Vil2FAo không
+    if (videoId === "wD09Vil2FAo") {
+      console.log(
+        "Phát hiện video ID đặc biệt: wD09Vil2FAo - có thể cần xử lý đặc biệt"
+      );
     }
 
     try {
@@ -463,7 +474,13 @@ const YouTubePlayer = () => {
       }/room-music/${roomId}/${videoId}`;
       console.log("Calling backup API:", backupApiUrl);
 
-      const response = await axios.get(backupApiUrl);
+      // Thêm thông tin môi trường vào request
+      const response = await axios.get(backupApiUrl, {
+        headers: {
+          "X-Environment": import.meta.env.MODE,
+          "X-User-Agent": navigator.userAgent,
+        },
+      });
 
       if (response.data?.result?.url) {
         setBackupState((prev) => ({
@@ -643,7 +660,15 @@ const YouTubePlayer = () => {
             console.log("Quality changed:", event.data);
           },
           onError: async (event: any) => {
-            console.log("YouTube Error occurred:", event.data);
+            console.log("YouTube Error occurred:", event.data, {
+              errorCode: event.data,
+              videoId:
+                playerRef.current?.getVideoData?.()?.video_id ||
+                videoState.nowPlayingData?.video_id,
+              env: import.meta.env.MODE,
+              embeddable: playerRef.current?.getVideoData?.()?.embeddable,
+              errorDetail: event.target?.getPlayerState?.() || "unknown",
+            });
             setIsChangingSong(false);
 
             // Đánh dấu YouTube có lỗi trước khi gọi handleYouTubeError
@@ -660,6 +685,7 @@ const YouTubePlayer = () => {
                 videoState.nowPlayingData?.video_id ||
                 videoState.currentVideoId,
               errorCode: event.data,
+              env: import.meta.env.MODE,
             });
           },
         },
