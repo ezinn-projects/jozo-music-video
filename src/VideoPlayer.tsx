@@ -930,6 +930,35 @@ const YouTubePlayer = () => {
     }
   }, [volume, backupState.backupUrl]);
 
+  // Thêm useEffect để xử lý xung đột phát nhạc
+  useEffect(() => {
+    // Khi có backup URL và backup video đã sẵn sàng, tạm dừng video YouTube
+    if (
+      backupState.backupUrl &&
+      backupState.backupVideoReady &&
+      playerRef.current
+    ) {
+      console.log("Backup video ready, pausing YouTube player");
+      try {
+        // Mute trước khi pause để tránh tiếng ồn
+        playerRef.current.mute();
+        playerRef.current.pauseVideo();
+
+        // Ẩn hoàn toàn iframe YouTube
+        const iframe = document.querySelector(
+          "#youtube-player iframe"
+        ) as HTMLIFrameElement;
+        if (iframe) {
+          iframe.style.opacity = "0";
+          iframe.style.pointerEvents = "none";
+          iframe.style.display = "none"; // Ẩn hoàn toàn
+        }
+      } catch (error) {
+        console.error("Error pausing YouTube player:", error);
+      }
+    }
+  }, [backupState.backupUrl, backupState.backupVideoReady]);
+
   return (
     <div
       ref={containerRef}
@@ -1035,6 +1064,16 @@ const YouTubePlayer = () => {
                 backupVideoReady: true,
               }));
 
+              // Tạm dừng YouTube player nếu đang chạy
+              if (playerRef.current) {
+                try {
+                  playerRef.current.mute();
+                  playerRef.current.pauseVideo();
+                } catch (error) {
+                  console.error("Error pausing YouTube player:", error);
+                }
+              }
+
               socket?.emit("video_ready", {
                 roomId,
                 videoId: videoState.currentVideoId,
@@ -1091,9 +1130,17 @@ const YouTubePlayer = () => {
           backupState.backupVideoReady
             ? "hidden"
             : backupState.youtubeError
-            ? "opacity-50 pointer-events-none"
+            ? "opacity-0 pointer-events-none"
             : "visible"
         }`}
+        style={{
+          display:
+            backupState.backupUrl &&
+            !backupState.backupError &&
+            backupState.backupVideoReady
+              ? "none"
+              : "block",
+        }}
       ></div>
 
       {/* Hiển thị màn hình lỗi YouTube khi không có backup */}
