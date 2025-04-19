@@ -69,7 +69,9 @@ const YouTubePlayer = () => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   // Thêm constant cho fallback video ID
-  const FALLBACK_VIDEO_ID = "gwI_TfRS9iU";
+  const FALLBACK_VIDEO_ID = "IcrbM1l_BoI"; // Avicii - Wake Me Up
+  // Thêm option audio-only
+  const AUDIO_ONLY_MODE = true;
 
   const cuteMessages = [
     "Jozo có xịn không nào? Chọn bài đi bạn ơi! 🎵",
@@ -508,11 +510,20 @@ const YouTubePlayer = () => {
   ]);
 
   useEffect(() => {
-    // Thêm script YouTube API
-    const tag = document.createElement("script");
-    tag.src = "https://www.youtube.com/iframe_api";
-    const firstScriptTag = document.getElementsByTagName("script")[0];
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    // Preload YouTube API và các tài nguyên cần thiết
+    const preloadResources = async () => {
+      // Preload logo
+      const logoImg = new Image();
+      logoImg.src = logo;
+
+      // Preload YouTube API
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName("script")[0];
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    };
+
+    preloadResources();
 
     (window as any).onYouTubeIframeAPIReady = () => {
       playerRef.current = new (window as any).YT.Player("youtube-player", {
@@ -530,7 +541,7 @@ const YouTubePlayer = () => {
           enablejsapi: 1,
           origin: window.location.origin,
           disablekb: 1,
-          vq: !videoState.nowPlayingData ? "tiny" : "hd1080",
+          vq: !videoState.nowPlayingData ? "tiny" : "auto",
           showinfo: 0,
           // Chỉ loop khi không có nowPlayingData
           loop: !videoState.nowPlayingData ? 1 : 0,
@@ -538,9 +549,23 @@ const YouTubePlayer = () => {
         },
         events: {
           onReady: (event: any) => {
+            // Đặt chất lượng video: thấp nhất cho fallback, tự động cho video thường
             event.target.setPlaybackQuality(
-              !videoState.nowPlayingData ? "tiny" : "hd1080"
+              !videoState.nowPlayingData ? "tiny" : "auto"
             );
+
+            // Nếu đang ở chế độ audio-only và không có bài đang phát, ẩn video
+            if (!videoState.nowPlayingData && AUDIO_ONLY_MODE) {
+              // Ẩn video và chỉ phát audio
+              const iframe = document.querySelector(
+                "#youtube-player iframe"
+              ) as HTMLIFrameElement;
+              if (iframe) {
+                iframe.style.opacity = "0";
+                iframe.style.pointerEvents = "none";
+              }
+            }
+
             event.target.playVideo();
             // Chỉ seek time khi có video chính
             if (videoState.nowPlayingData) {
@@ -1071,29 +1096,40 @@ const YouTubePlayer = () => {
 
       {/* Fallback overlay - hiển thị khi không có bài hát nào đang phát */}
       {!videoState.nowPlayingData?.video_id && (
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/90 via-black/95 to-pink-900/90 z-[30] flex flex-col items-center justify-center">
-          <div className="relative mb-8">
+        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/90 via-black/95 to-pink-900/90 z-[30] flex flex-col items-center justify-start pt-8">
+          <div className="relative mb-4">
             <img
               src={logo}
               alt="logo"
-              className="w-32 h-32 object-contain animate-[bounce_6s_ease-in-out_infinite] drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]"
+              className="w-24 h-24 object-contain animate-[pulse_3s_ease-in-out_infinite] drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/5 to-transparent animate-[pulse_2s_ease-in-out_infinite]"></div>
           </div>
 
-          <div className="px-8 py-4 rounded-2xl bg-black/30 backdrop-blur-sm border border-white/10 shadow-[0_0_15px_rgba(0,0,0,0.3)] mb-8">
-            <p className="text-white text-xl font-bold text-center animate-bounce">
+          <div className="px-8 py-3 rounded-xl bg-black/30 backdrop-blur-sm border border-white/10 shadow-[0_0_15px_rgba(0,0,0,0.3)] mb-5 max-w-[90%]">
+            <p className="text-white text-lg font-bold text-center">
               {cuteMessages[currentMessageIndex]}
             </p>
           </div>
 
+          {/* Hiển thị thông tin về nhạc nền đang phát */}
+          <div className="px-6 py-2 bg-black/20 backdrop-blur-sm rounded-full mb-5 flex items-center">
+            <div className="w-3 h-3 rounded-full bg-pink-500 mr-3 animate-pulse"></div>
+            <p className="text-white text-sm">
+              Đang phát:{" "}
+              <span className="font-semibold">Avicii - Wake Me Up</span>
+            </p>
+          </div>
+
           {/* Danh sách nhạc trending */}
-          <div className="w-full max-w-3xl px-6">
-            <div className="bg-black/40 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
-              <h3 className="text-white text-xl font-bold mb-6 flex items-center">
+          <div
+            className="w-full max-w-4xl px-6 overflow-y-auto"
+            style={{ maxHeight: "calc(100vh - 240px)" }}
+          >
+            <div className="bg-black/40 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
+              <h3 className="text-white text-lg font-bold mb-4 flex items-center">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className="h-6 w-6 mr-2 text-pink-500"
+                  className="h-5 w-5 mr-2 text-pink-500"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -1108,34 +1144,34 @@ const YouTubePlayer = () => {
                 Đang Thịnh Hành
               </h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {trendingSongs.map((song, index) => (
                   <div
                     key={index}
-                    className="flex items-center justify-between p-3 rounded-lg hover:bg-white/5 transition-colors group border border-white/5"
+                    className="flex items-center justify-between p-2 rounded-lg hover:bg-white/5 transition-colors group border border-white/5"
                   >
                     <div className="flex items-center flex-1 min-w-0">
-                      <span className="text-2xl font-bold text-white/50 w-8 shrink-0">
+                      <span className="text-xl font-bold text-white/50 w-6 shrink-0">
                         {index + 1}
                       </span>
-                      <div className="ml-4 truncate">
+                      <div className="ml-3 truncate">
                         <p className="text-white font-semibold group-hover:text-pink-500 transition-colors truncate">
                           {song.title}
                         </p>
                         <div className="flex items-center gap-2">
-                          <p className="text-white/60 text-sm truncate">
+                          <p className="text-white/60 text-xs truncate">
                             {song.artist}
                           </p>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/80">
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/10 text-white/80">
                             {song.genre}
                           </span>
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center text-white/60 text-sm ml-4 shrink-0">
+                    <div className="flex items-center text-white/60 text-xs ml-3 shrink-0">
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        className="h-4 w-4 mr-1"
+                        className="h-3 w-3 mr-1"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
