@@ -1028,19 +1028,35 @@ const YouTubePlayer = () => {
 
   // Thêm useEffect mới để đảm bảo fallback video được phát khi không có nowPlayingData
   useEffect(() => {
-    if (!videoState.nowPlayingData && playerRef.current?.loadVideoById) {
-      console.log(
-        "No nowPlayingData, playing fallback video:",
-        FALLBACK_VIDEO_ID
-      );
-      playerRef.current.loadVideoById({
-        videoId: FALLBACK_VIDEO_ID,
-        startSeconds: 0,
+    // Chỉ phát nhạc chờ nếu không có nowPlayingData VÀ socket đã kết nối
+    if (
+      !videoState.nowPlayingData &&
+      playerRef.current?.loadVideoById &&
+      socket
+    ) {
+      // Kiểm tra xem trong phòng có bài hát nào đang phát không
+      socket.emit("check_now_playing", { roomId }, (response: any) => {
+        // Nếu không có bài nào đang phát trong phòng, thì mới phát nhạc chờ
+        if (!response?.nowPlaying) {
+          console.log(
+            "Không có bài hát nào đang phát trong phòng, phát nhạc chờ:",
+            FALLBACK_VIDEO_ID
+          );
+          playerRef.current?.loadVideoById({
+            videoId: FALLBACK_VIDEO_ID,
+            startSeconds: 0,
+          });
+        } else {
+          console.log(
+            "Đã có bài hát đang phát trong phòng:",
+            response?.nowPlaying
+          );
+        }
       });
     }
-  }, [videoState.nowPlayingData]);
+  }, [videoState.nowPlayingData, socket, roomId]);
 
-  // Thêm một useEffect mới để xử lý trường hợp YouTube API bị lỗi
+  // Thêm useEffect mới để xử lý trường hợp YouTube API bị lỗi
   useEffect(() => {
     // Nếu sau 5 giây video vẫn không load được, thử load lại
     const timeoutId = setTimeout(() => {
@@ -1074,40 +1090,46 @@ const YouTubePlayer = () => {
   useEffect(() => {
     // Kiểm tra trạng thái player mỗi 10 giây nếu không có video chính
     const intervalId = setInterval(() => {
-      if (playerRef.current && !videoState.nowPlayingData) {
-        try {
-          const playerState = playerRef.current.getPlayerState?.() || -1;
-          const videoData = playerRef.current.getVideoData?.() || {};
+      if (playerRef.current && !videoState.nowPlayingData && socket) {
+        // Kiểm tra xem trong phòng có bài hát nào đang phát không
+        socket.emit("check_now_playing", { roomId }, (response: any) => {
+          // Chỉ tải lại fallback nếu không có bài nào đang phát trong phòng
+          if (!response?.nowPlaying) {
+            try {
+              const playerState = playerRef.current.getPlayerState?.() || -1;
+              const videoData = playerRef.current.getVideoData?.() || {};
 
-          console.log("Kiểm tra player:", {
-            playerState,
-            videoId: videoData.video_id,
-            expectedId: FALLBACK_VIDEO_ID,
-          });
+              console.log("Kiểm tra player:", {
+                playerState,
+                videoId: videoData.video_id,
+                expectedId: FALLBACK_VIDEO_ID,
+              });
 
-          // Nếu video_id không khớp với fallback hoặc player không phát
-          if (
-            !videoData.video_id ||
-            videoData.video_id !== FALLBACK_VIDEO_ID ||
-            (playerState !== 1 && playerState !== 3)
-          ) {
-            console.log(
-              "Player không phát nhạc chờ, tải lại:",
-              FALLBACK_VIDEO_ID
-            );
-            playerRef.current.loadVideoById({
-              videoId: FALLBACK_VIDEO_ID,
-              startSeconds: 0,
-            });
+              // Nếu video_id không khớp với fallback hoặc player không phát
+              if (
+                !videoData.video_id ||
+                videoData.video_id !== FALLBACK_VIDEO_ID ||
+                (playerState !== 1 && playerState !== 3)
+              ) {
+                console.log(
+                  "Player không phát nhạc chờ, tải lại:",
+                  FALLBACK_VIDEO_ID
+                );
+                playerRef.current.loadVideoById({
+                  videoId: FALLBACK_VIDEO_ID,
+                  startSeconds: 0,
+                });
+              }
+            } catch (error) {
+              console.error("Lỗi khi kiểm tra trạng thái player:", error);
+            }
           }
-        } catch (error) {
-          console.error("Lỗi khi kiểm tra trạng thái player:", error);
-        }
+        });
       }
     }, 10000);
 
     return () => clearInterval(intervalId);
-  }, [videoState.nowPlayingData]);
+  }, [videoState.nowPlayingData, socket, roomId]);
 
   return (
     <div
