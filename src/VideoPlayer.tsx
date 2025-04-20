@@ -706,6 +706,7 @@ const YouTubePlayer = () => {
     const firstScriptTag = document.getElementsByTagName("script")[0];
     firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
     const PROD_ORIGIN = "https://video.jozo.com.vn"; // domain production của bạn
+
     const ORIGIN = import.meta.env.PROD ? PROD_ORIGIN : window.location.origin;
     (window as any).onYouTubeIframeAPIReady = () => {
       playerRef.current = new (window as any).YT.Player("youtube-player", {
