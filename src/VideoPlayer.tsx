@@ -202,6 +202,15 @@ const YouTubePlayer = () => {
     connectionAttempts: 0,
   });
 
+  // Thêm state để bật/tắt chế độ dev testing
+  const [devTestingMode, setDevTestingMode] = useState(false);
+
+  // Thêm state để lưu ID video test
+  const [testVideoId, setTestVideoId] = useState("");
+
+  // Thêm state để hiển thị test iframe
+  const [showTestIframe, setShowTestIframe] = useState(false);
+
   useEffect(() => {
     const intervalId = setInterval(() => {
       setCurrentMessageIndex((prev) => (prev + 1) % cuteMessages.length);
@@ -594,12 +603,22 @@ const YouTubePlayer = () => {
         youtubeError: true, // Đánh dấu là YouTube đang có lỗi
       }));
 
+      // Sử dụng timeout để tránh request treo quá lâu
+      const timeout = 10000; // 10 giây
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
       const backupApiUrl = `${
         import.meta.env.VITE_API_BASE_URL
       }/room-music/${roomId}/${videoId}`;
       console.log("Calling backup API:", backupApiUrl);
 
-      const response = await axios.get(backupApiUrl);
+      const response = await axios.get(backupApiUrl, {
+        signal: controller.signal,
+        timeout: timeout,
+      });
+
+      clearTimeout(timeoutId);
 
       if (response.data?.result?.url) {
         setBackupState((prev) => ({
@@ -619,6 +638,21 @@ const YouTubePlayer = () => {
         isLoadingBackup: false,
         youtubeError: true, // Vẫn đánh dấu YouTube lỗi
       }));
+
+      // Nếu không thể lấy backup, thử phát lại video nguyên gốc (có thể tình trạng đã thay đổi)
+      setTimeout(() => {
+        if (playerRef.current?.loadVideoById && videoId) {
+          console.log("Thử phát lại video sau lỗi:", videoId);
+          try {
+            playerRef.current.loadVideoById({
+              videoId: videoId,
+              startSeconds: 0,
+            });
+          } catch (e) {
+            console.error("Không thể thử lại video:", e);
+          }
+        }
+      }, 3000); // Thử lại sau 3 giây
     }
   }, [
     videoState.nowPlayingData?.video_id,
@@ -671,13 +705,15 @@ const YouTubePlayer = () => {
     tag.src = "https://www.youtube.com/iframe_api";
     const firstScriptTag = document.getElementsByTagName("script")[0];
     firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-
+    const PROD_ORIGIN = "https://video.jozo.com.vn"; // domain production của bạn
+    const ORIGIN = import.meta.env.PROD ? PROD_ORIGIN : window.location.origin;
     (window as any).onYouTubeIframeAPIReady = () => {
       playerRef.current = new (window as any).YT.Player("youtube-player", {
         // Chỉ sử dụng FALLBACK_VIDEO_ID khi không có nowPlayingData
         videoId:
           videoState.nowPlayingData?.video_id ||
           (!videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined),
+        host: "https://www.youtube.com",
         playerVars: {
           autoplay: 1,
           controls: 0,
@@ -686,39 +722,61 @@ const YouTubePlayer = () => {
           fs: 1,
           iv_load_policy: 3,
           enablejsapi: 1,
-          origin: window.location.origin,
+          playsinline: 1,
+          mute: 0,
           disablekb: 1,
           vq: !videoState.nowPlayingData ? "tiny" : "hd1080",
-          showinfo: 0,
-          // Chỉ loop khi không có nowPlayingData
           loop: !videoState.nowPlayingData ? 1 : 0,
           playlist: !videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined,
+          origin: ORIGIN,
         },
         events: {
           onReady: (event: any) => {
             event.target.setPlaybackQuality(
               !videoState.nowPlayingData ? "tiny" : "hd1080"
             );
-            event.target.playVideo();
-            // Chỉ seek time khi có video chính
-            if (videoState.nowPlayingData) {
-              const currentServerTime =
-                videoState.nowPlayingData.timestamp +
-                (Date.now() - videoState.nowPlayingData.timestamp) / 1000;
-              const targetTime =
-                videoState.nowPlayingData.currentTime +
-                (currentServerTime - videoState.nowPlayingData.timestamp);
-              event.target.seekTo(targetTime, true);
+
+            try {
+              event.target.playVideo();
+
+              // Chỉ seek time khi có video chính
+              if (videoState.nowPlayingData) {
+                const currentServerTime =
+                  videoState.nowPlayingData.timestamp +
+                  (Date.now() - videoState.nowPlayingData.timestamp) / 1000;
+                const targetTime =
+                  videoState.nowPlayingData.currentTime +
+                  (currentServerTime - videoState.nowPlayingData.timestamp);
+                event.target.seekTo(targetTime, true);
+              }
+            } catch (e) {
+              console.error("Lỗi khi phát video:", e);
+              event.target.mute();
+              event.target.playVideo();
+
+              // Vẫn cố gắng seek time nếu có video chính
+              if (videoState.nowPlayingData) {
+                try {
+                  const currentServerTime =
+                    videoState.nowPlayingData.timestamp +
+                    (Date.now() - videoState.nowPlayingData.timestamp) / 1000;
+                  const targetTime =
+                    videoState.nowPlayingData.currentTime +
+                    (currentServerTime - videoState.nowPlayingData.timestamp);
+                  event.target.seekTo(targetTime, true);
+                } catch (seekError) {
+                  console.error("Lỗi khi seek video:", seekError);
+                }
+              }
             }
+
+            event.target.setVolume(volume);
             socket?.emit("video_ready", {
               roomId: roomId,
               videoId: videoState.nowPlayingData?.video_id,
             });
             setVideoState((prev) => ({ ...prev, isPaused: false }));
             setIsChangingSong(false);
-
-            // Đặt âm lượng ban đầu cho YouTube player
-            event.target.setVolume(volume);
           },
           onStateChange: (event: any) => {
             const YT = (window as any).YT.PlayerState;
@@ -744,7 +802,38 @@ const YouTubePlayer = () => {
             console.log("YouTube Error occurred:", event.data);
             setIsChangingSong(false);
 
-            // Đánh dấu YouTube có lỗi trước khi gọi handleYouTubeError
+            // Xử lý cụ thể cho từng mã lỗi YouTube
+            // 150: Embedding disabled by request (video không cho phép embed)
+            if (event.data === 150) {
+              console.log(
+                "Lỗi 150: Video không cho phép nhúng, chuyển sang chế độ backup"
+              );
+
+              // Đánh dấu YouTube có lỗi
+              setBackupState((prev) => ({
+                ...prev,
+                youtubeError: true,
+              }));
+
+              // Kiểm tra xem nếu đây là video chưa được phát (trong quá trình chuyển bài)
+              // thì mới gọi API lấy backup, tránh gọi nhiều lần không cần thiết
+              if (!backupState.backupUrl && !backupState.isLoadingBackup) {
+                await handleYouTubeError();
+
+                // Thông báo lỗi cho server
+                socket?.emit("video_error", {
+                  roomId,
+                  videoId:
+                    videoState.nowPlayingData?.video_id ||
+                    videoState.currentVideoId,
+                  errorCode: event.data,
+                  message: "Video không cho phép nhúng",
+                });
+              }
+              return;
+            }
+
+            // Các lỗi YouTube khác
             setBackupState((prev) => ({
               ...prev,
               youtubeError: true,
@@ -1071,6 +1160,57 @@ const YouTubePlayer = () => {
     return null;
   };
 
+  // Thêm function để giả lập lỗi YouTube
+  const simulateYouTubeError = (errorCode: number) => {
+    console.log(`Giả lập lỗi YouTube: ${errorCode}`);
+
+    // Đánh dấu YouTube có lỗi
+    setBackupState((prev) => ({
+      ...prev,
+      youtubeError: true,
+    }));
+
+    // Gọi hàm xử lý lỗi
+    handleYouTubeError();
+
+    // Gửi thông báo lỗi đến server
+    socket?.emit("video_error", {
+      roomId,
+      videoId: videoState.nowPlayingData?.video_id || videoState.currentVideoId,
+      errorCode: errorCode,
+      message: "Lỗi giả lập để test",
+    });
+  };
+
+  // Hàm để test video với ID cụ thể
+  const testVideoWithId = (videoId: string) => {
+    if (!videoId.trim()) return;
+
+    // Hiển thị iframe test
+    setTestVideoId(videoId);
+    setShowTestIframe(true);
+  };
+
+  // Hàm để phát video test trong player chính
+  const playTestVideo = (videoId: string) => {
+    if (!videoId.trim()) return;
+
+    if (playerRef.current?.loadVideoById) {
+      playerRef.current.loadVideoById({
+        videoId: videoId,
+        startSeconds: 0,
+      });
+
+      // Cập nhật state
+      setVideoState((prev) => ({
+        ...prev,
+        currentVideoId: videoId,
+        isPaused: false,
+        isBuffering: true,
+      }));
+    }
+  };
+
   // Nếu video bị tắt, hiển thị component RecordingStudio
   if (isVideoOff) {
     return <RecordingStudio />;
@@ -1157,6 +1297,166 @@ const YouTubePlayer = () => {
 
       {/* Hiển thị trạng thái kết nối socket */}
       {connectionStatusIndicator()}
+
+      {/* Thêm nút test cho môi trường dev */}
+      {import.meta.env.DEV && !isVideoOff && (
+        <div className="absolute top-16 left-4 z-50 flex flex-col gap-2">
+          <button
+            onClick={() => setDevTestingMode((prev) => !prev)}
+            className="bg-blue-500 text-white px-3 py-1 rounded-md text-sm"
+          >
+            {devTestingMode ? "Tắt Dev Mode" : "Bật Dev Mode"}
+          </button>
+
+          {devTestingMode && (
+            <>
+              <button
+                onClick={() => simulateYouTubeError(150)}
+                className="bg-red-500 text-white px-3 py-1 rounded-md text-sm"
+              >
+                Test Lỗi 150
+              </button>
+              <button
+                onClick={() => simulateYouTubeError(101)}
+                className="bg-orange-500 text-white px-3 py-1 rounded-md text-sm"
+              >
+                Test Lỗi 101
+              </button>
+
+              {/* Thêm form test video ID */}
+              <div className="bg-gray-800 p-2 rounded-md mt-2">
+                <input
+                  type="text"
+                  placeholder="Nhập YouTube Video ID"
+                  value={testVideoId}
+                  onChange={(e) => setTestVideoId(e.target.value)}
+                  className="w-full px-2 py-1 text-sm rounded mb-2 text-black"
+                />
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => testVideoWithId(testVideoId)}
+                    className="bg-purple-500 text-white px-2 py-1 rounded text-xs flex-1"
+                  >
+                    Test iframe
+                  </button>
+                  <button
+                    onClick={() => playTestVideo(testVideoId)}
+                    className="bg-green-500 text-white px-2 py-1 rounded text-xs flex-1"
+                  >
+                    Phát video
+                  </button>
+                </div>
+              </div>
+
+              {/* Hiển thị các YouTube ID thường bị lỗi 150 */}
+              <div className="bg-gray-800 p-2 rounded-md mt-2 text-white text-xs">
+                <p className="font-bold mb-1">Videos thường bị lỗi 150:</p>
+                <div className="grid grid-cols-2 gap-1">
+                  <button
+                    onClick={() => setTestVideoId("R4em3tIxwPU")}
+                    className="bg-gray-700 px-1 py-0.5 rounded text-left overflow-hidden overflow-ellipsis whitespace-nowrap"
+                    title="R4em3tIxwPU - Universal Music"
+                  >
+                    R4em3tIxwPU
+                  </button>
+                  <button
+                    onClick={() => setTestVideoId("2xWkATdMQms")}
+                    className="bg-gray-700 px-1 py-0.5 rounded text-left overflow-hidden overflow-ellipsis whitespace-nowrap"
+                    title="2xWkATdMQms - Sony Music"
+                  >
+                    2xWkATdMQms
+                  </button>
+                  <button
+                    onClick={() => setTestVideoId("eUtEEwp4Ig4")}
+                    className="bg-gray-700 px-1 py-0.5 rounded text-left overflow-hidden overflow-ellipsis whitespace-nowrap"
+                    title="eUtEEwp4Ig4 - VEVO"
+                  >
+                    eUtEEwp4Ig4
+                  </button>
+                  <button
+                    onClick={() => setTestVideoId("cNjeiKrwL5E")}
+                    className="bg-gray-700 px-1 py-0.5 rounded text-left overflow-hidden overflow-ellipsis whitespace-nowrap"
+                    title="cNjeiKrwL5E - UMG"
+                  >
+                    cNjeiKrwL5E
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Test iframe popup */}
+      {showTestIframe && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100]">
+          <div className="bg-gray-800 p-4 rounded-lg w-full max-w-3xl">
+            <div className="flex justify-between mb-4">
+              <h3 className="text-white font-bold">Test YouTube Embed</h3>
+              <button
+                onClick={() => setShowTestIframe(false)}
+                className="text-white bg-red-500 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold"
+              >
+                X
+              </button>
+            </div>
+
+            <div className="aspect-video bg-black relative overflow-hidden rounded">
+              <iframe
+                src={`https://www.youtube.com/embed/${testVideoId}?enablejsapi=1&origin=${window.location.origin}&autoplay=1`}
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="absolute inset-0 w-full h-full"
+              ></iframe>
+            </div>
+
+            <div className="mt-4 text-white text-sm bg-gray-700 p-3 rounded">
+              <p className="font-bold mb-2">
+                Làm thế nào để biết video có lỗi 150:
+              </p>
+              <ol className="list-decimal pl-5 space-y-1">
+                <li>
+                  Nếu iframe không hiển thị video hoặc hiển thị thông báo lỗi
+                  "Video unavailable"
+                </li>
+                <li>
+                  Kiểm tra console để tìm lỗi "Embedding disabled" hoặc lỗi 150
+                </li>
+                <li>
+                  Thử mở Developer Tools {"->"} Network để xem các request đến
+                  YouTube
+                </li>
+              </ol>
+              <p className="mt-2 text-yellow-300">
+                Lưu ý: Một số video bị hạn chế embed chỉ ở một số domain hoặc
+                quốc gia
+              </p>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => playTestVideo(testVideoId)}
+                className="bg-green-500 text-white px-3 py-1 rounded"
+              >
+                Phát trong player chính
+              </button>
+              <button
+                onClick={() => {
+                  setShowTestIframe(false);
+                  window.open(
+                    `https://www.youtube.com/watch?v=${testVideoId}`,
+                    "_blank"
+                  );
+                }}
+                className="bg-blue-500 text-white px-3 py-1 rounded"
+              >
+                Mở trên YouTube
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isChangingSong && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-40">
