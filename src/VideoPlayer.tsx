@@ -243,6 +243,8 @@ const YouTubePlayer = () => {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
+      transports: ["websocket"], // ← chỉ websocket, không polling
+      path: "/socket.io", // (mặc định)
     });
     setSocket(socketInstance);
 
