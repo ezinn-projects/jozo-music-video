@@ -68,9 +68,6 @@ const YouTubePlayer = () => {
     youtubeError: false,
   });
 
-  console.log("videoState", videoState);
-  console.log("backupState", backupState);
-
   // Thêm state mới
   const [isChangingSong, setIsChangingSong] = useState(false);
 
@@ -732,6 +729,10 @@ const YouTubePlayer = () => {
           vq: !videoState.nowPlayingData ? "tiny" : "hd1080",
           loop: !videoState.nowPlayingData ? 1 : 0,
           playlist: !videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined,
+          quality: "hd1080",
+          hl: "vi",
+          cc_load_policy: 0,
+          color: "white",
           origin: ORIGIN,
         },
         events: {
