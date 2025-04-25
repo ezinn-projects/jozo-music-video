@@ -1264,6 +1264,11 @@ const YouTubePlayer = () => {
     }
   }, [volume, showFallbackVideo]);
 
+  useEffect(() => {
+    const preloadVideo = new Audio(fallbackVideo);
+    preloadVideo.load();
+  }, []);
+
   // Nếu video bị tắt, hiển thị component RecordingStudio
   if (isVideoOff) {
     return <RecordingStudio />;
@@ -1668,6 +1673,7 @@ const YouTubePlayer = () => {
             loop
             playsInline
             controls={false}
+            preload="auto"
           />
 
           {/* Overlay trên video fallback */}
@@ -1685,32 +1691,6 @@ const YouTubePlayer = () => {
               <p className="text-white text-xl font-bold text-center animate-bounce">
                 {cuteMessages[currentMessageIndex]}
               </p>
-
-              {/* Nút kiểm tra âm thanh */}
-              <button
-                onClick={() => {
-                  if (fallbackVideoRef.current) {
-                    // Đặt lại âm lượng và tắt/bật tiếng
-                    fallbackVideoRef.current.muted =
-                      !fallbackVideoRef.current.muted;
-                    fallbackVideoRef.current.volume = volume / 100;
-                    console.log(
-                      "Trạng thái âm thanh:",
-                      fallbackVideoRef.current.muted
-                        ? "Đã tắt tiếng"
-                        : "Đã bật tiếng",
-                      "Âm lượng:",
-                      fallbackVideoRef.current.volume
-                    );
-                  }
-                }}
-                className="mt-4 px-4 py-2 bg-pink-600 hover:bg-pink-700 transition-colors rounded-full text-white font-semibold"
-              >
-                {fallbackVideoRef.current?.muted
-                  ? "Bật âm thanh"
-                  : "Tắt âm thanh"}{" "}
-                (Vol: {volume}%)
-              </button>
             </div>
 
             {/* Danh sách nhạc trending */}
