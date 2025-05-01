@@ -802,6 +802,14 @@ const YouTubePlayer = () => {
           },
           onPlaybackQualityChange: (event: any) => {
             console.log("Quality changed:", event.data);
+            // Ép chất lượng về HD 1080 nếu khác
+            if (
+              event.data !== "hd1080" &&
+              videoState.nowPlayingData &&
+              event.target.setPlaybackQuality
+            ) {
+              event.target.setPlaybackQuality("hd1080");
+            }
           },
           onError: async (event: any) => {
             console.log("YouTube Error occurred:", event.data);
