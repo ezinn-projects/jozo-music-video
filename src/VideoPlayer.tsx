@@ -808,7 +808,51 @@ const YouTubePlayer = () => {
               videoState.nowPlayingData &&
               event.target.setPlaybackQuality
             ) {
-              event.target.setPlaybackQuality("hd1080");
+              // Kiểm tra chất lượng mạng trước khi ép 1080p
+              const hasGoodConnection = () => {
+                // Sử dụng Network Information API nếu trình duyệt hỗ trợ
+                const connection =
+                  (navigator as any).connection ||
+                  (navigator as any).mozConnection ||
+                  (navigator as any).webkitConnection;
+
+                if (connection) {
+                  // Kiểm tra kiểu kết nối
+                  const connectionType =
+                    connection.type || connection.effectiveType;
+                  const isFastConnection =
+                    connectionType === "wifi" ||
+                    connectionType === "ethernet" ||
+                    connectionType === "4g" ||
+                    connectionType === "unknown";
+
+                  // Kiểm tra băng thông
+                  const hasHighBandwidth =
+                    !connection.downlink || connection.downlink >= 2; // ít nhất 2 Mbps
+
+                  console.log("Network info:", {
+                    type: connectionType,
+                    downlink: connection.downlink,
+                    isFast: isFastConnection && hasHighBandwidth,
+                  });
+
+                  return isFastConnection && hasHighBandwidth;
+                }
+
+                // Nếu API không được hỗ trợ, giả định đường truyền tốt
+                return true;
+              };
+
+              // Chỉ ép 1080p nếu đường truyền tốt
+              if (hasGoodConnection()) {
+                console.log("Đường truyền tốt, ép chất lượng về 1080p");
+                event.target.setPlaybackQuality("hd1080");
+              } else {
+                console.log(
+                  "Đường truyền không đủ tốt, giữ chất lượng hiện tại:",
+                  event.data
+                );
+              }
             }
           },
           onError: async (event: any) => {
