@@ -1,7 +1,8 @@
-import YouTubePlayer from "./VideoPlayer";
+import React from "react";
+import VideoPlayer from "./components/video/VideoPlayer";
 
-const App = () => {
-  return <YouTubePlayer />;
+const App: React.FC = () => {
+  return <VideoPlayer />;
 };
 
 export default App;
