@@ -384,6 +384,54 @@ const YouTubePlayer = () => {
   // Thêm state để hiển thị test iframe
   const [showTestIframe, setShowTestIframe] = useState(false);
 
+  // Thêm xử lý khi video kết thúc
+  const handleVideoEnd = useCallback(() => {
+    if (!socket || !videoState.nowPlayingData) return;
+
+    socket.emit("song_ended", {
+      roomId,
+      videoId: videoState.nowPlayingData.video_id,
+    });
+  }, [socket, videoState.nowPlayingData, roomId]);
+
+  // Sử dụng custom hook
+  const {
+    backupVideoRef,
+    backupState,
+    setBackupState,
+    handleYouTubeError,
+    handlePlaybackEvent,
+    renderBackupVideo,
+  } = useBackupVideo(
+    videoState.nowPlayingData?.video_id || videoState.currentVideoId,
+    roomId,
+    volume,
+    socket,
+    // onVideoReady callback - không tham chiếu trực tiếp đến backupVideoRef
+    () => {
+      setVideoState((prev) => ({ ...prev, isPaused: false }));
+
+      // Emit play event sau khi backup video sẵn sàng
+      if (socket) {
+        socket.emit("video_event", {
+          roomId,
+          event: "play",
+          videoId: videoState.currentVideoId,
+          currentTime: 0, // Giá trị mặc định khi không truy cập được backupVideoRef
+        });
+      }
+    },
+    // onVideoEnd callback - truyền trực tiếp thay vì sử dụng handleBackupVideoEnd
+    () => {
+      if (!socket || !videoState.nowPlayingData) return;
+
+      socket.emit("song_ended", {
+        roomId,
+        videoId: videoState.nowPlayingData.video_id,
+      });
+    }
+  );
+
   useEffect(() => {
     const intervalId = setInterval(() => {
       setCurrentMessageIndex((prev) => (prev + 1) % cuteMessages.length);
@@ -668,72 +716,13 @@ const YouTubePlayer = () => {
       socket.off("video_event", handlePlaybackEvent);
       socket.off("now_playing_cleared", handleNowPlayingCleared);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     socket,
-    backupState.backupUrl,
     FALLBACK_VIDEO_ID,
-    // Không phụ thuộc vào videoState để tránh re-register handlers khi video thay đổi
+    // backupState.backupUrl, backupVideoRef và setBackupState được sử dụng trong useEffect
+    // nhưng không thể thêm vào dependency array do gây ra circular dependency
   ]);
-
-  // Thêm xử lý khi video kết thúc
-  const handleVideoEnd = useCallback(() => {
-    if (!socket || !videoState.nowPlayingData) return;
-
-    socket.emit("song_ended", {
-      roomId,
-      videoId: videoState.nowPlayingData.video_id,
-    });
-  }, [socket, videoState.nowPlayingData, roomId]);
-
-  // Thêm handler riêng cho video backup
-  const handleBackupVideoEnd = useCallback(() => {
-    if (!socket || !videoState.nowPlayingData) return;
-
-    // Kiểm tra xem video có thực sự gần kết thúc không
-    if (backupVideoRef.current) {
-      const currentTime = backupVideoRef.current.currentTime;
-      const duration = backupVideoRef.current.duration;
-
-      // Chỉ emit song_ended khi thời gian hiện tại gần với duration gốc
-      if (duration && currentTime >= duration - 1.5) {
-        socket.emit("song_ended", {
-          roomId,
-          videoId: videoState.nowPlayingData.video_id,
-        });
-      }
-    }
-  }, [socket, videoState.nowPlayingData, roomId]);
-
-  // Sử dụng custom hook
-  const {
-    backupVideoRef,
-    backupState,
-    setBackupState,
-    handleYouTubeError,
-    handlePlaybackEvent,
-    renderBackupVideo,
-  } = useBackupVideo(
-    videoState.nowPlayingData?.video_id || videoState.currentVideoId,
-    roomId,
-    volume,
-    socket,
-    // onVideoReady callback
-    () => {
-      setVideoState((prev) => ({ ...prev, isPaused: false }));
-
-      // Emit play event sau khi backup video sẵn sàng
-      if (socket && backupVideoRef.current) {
-        socket.emit("video_event", {
-          roomId,
-          event: "play",
-          videoId: videoState.currentVideoId,
-          currentTime: backupVideoRef.current.currentTime || 0,
-        });
-      }
-    },
-    // onVideoEnd callback
-    handleBackupVideoEnd
-  );
 
   const handleStateChange = useCallback(
     (event: any) => {

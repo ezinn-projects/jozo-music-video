@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef } from "react";
 
 interface YouTubePlayerIframeProps {
-  playerRef: React.RefObject<any>;
+  playerRef: React.MutableRefObject<any>;
   videoId: string | undefined;
   onReady: (event: any) => void;
   onStateChange: (event: any) => void;
@@ -9,6 +10,7 @@ interface YouTubePlayerIframeProps {
   onPlaybackQualityChange: (event: any) => void;
   isFallback: boolean;
   fallbackVideoId: string;
+  showControls?: boolean;
 }
 
 const YouTubePlayerIframe: React.FC<YouTubePlayerIframeProps> = ({
@@ -20,6 +22,7 @@ const YouTubePlayerIframe: React.FC<YouTubePlayerIframeProps> = ({
   onPlaybackQualityChange,
   isFallback,
   fallbackVideoId,
+  showControls = false,
 }) => {
   const playerDivRef = useRef<HTMLDivElement>(null);
   const playerCreatedRef = useRef(false);
@@ -44,7 +47,7 @@ const YouTubePlayerIframe: React.FC<YouTubePlayerIframeProps> = ({
           videoId: actualVideoId,
           playerVars: {
             autoplay: 1,
-            controls: 0,
+            controls: showControls ? 1 : 0,
             disablekb: 1,
             enablejsapi: 1,
             fs: 0,
@@ -107,6 +110,7 @@ const YouTubePlayerIframe: React.FC<YouTubePlayerIframeProps> = ({
     playerRef,
     isFallback,
     fallbackVideoId,
+    showControls,
   ]);
 
   return <div id="youtube-player" ref={playerDivRef} />;

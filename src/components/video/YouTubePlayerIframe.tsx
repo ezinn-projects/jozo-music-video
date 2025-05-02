@@ -47,14 +47,14 @@ const YouTubePlayerIframe: FC<YouTubePlayerIframeProps> = ({
       let hasValidMethods = false;
 
       try {
-        // Try to get current video data (this is a common source of 'this is undefined' errors)
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const videoData = player.getVideoData();
-        // Try to get current time and duration (just to verify they work with proper 'this' binding)
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const currentTime = player.getCurrentTime();
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const duration = player.getDuration();
+        // // Try to get current video data (this is a common source of 'this is undefined' errors)
+        // // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        // const videoData = player.getVideoData();
+        // // Try to get current time and duration (just to verify they work with proper 'this' binding)
+        // // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        // const currentTime = player.getCurrentTime();
+        // // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        // const duration = player.getDuration();
 
         // Make sure the methods needed for playback control exist
         hasValidMethods =
