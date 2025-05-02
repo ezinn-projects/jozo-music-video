@@ -400,7 +400,6 @@ const YouTubePlayer = () => {
     backupState,
     setBackupState,
     handleYouTubeError,
-    handlePlaybackEvent,
     renderBackupVideo,
   } = useBackupVideo(
     videoState.nowPlayingData?.video_id || videoState.currentVideoId,
