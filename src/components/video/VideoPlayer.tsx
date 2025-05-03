@@ -375,7 +375,7 @@ const VideoPlayer = () => {
     if (backupVideoRef.current) {
       backupVideoRef.current.volume = volume / 100;
     }
-  }, [volume]);
+  }, [volume, backupVideoRef.current ? backupState.backupUrl : null]);
 
   // Handle "Powered by Jozo" display
   useEffect(() => {
@@ -410,7 +410,7 @@ const VideoPlayer = () => {
 
   // Show "Powered by Jozo" at end of song
   useEffect(() => {
-    if (!videoState.nowPlayingData || !playerRef.current) return;
+    if (!videoState.nowPlayingData?.video_id || !playerRef.current) return;
 
     // Reset flag khi video thay đổi
     hasShownEndingRef.current = false;
@@ -451,7 +451,7 @@ const VideoPlayer = () => {
     return () => {
       clearInterval(checkEndingInterval);
     };
-  }, [videoState.nowPlayingData, showPoweredBy, playerRef]);
+  }, [videoState.nowPlayingData?.video_id, showPoweredBy]);
 
   // Handle double tap for fullscreen toggle
   const handleDoubleTap = useCallback(() => {
@@ -632,7 +632,7 @@ const VideoPlayer = () => {
     const intervalId = setInterval(forceHDQuality, 2000);
 
     return () => clearInterval(intervalId);
-  }, [videoState.nowPlayingData]);
+  }, [videoState.nowPlayingData?.video_id]);
 
   // Add effect to monitor and log quality issues
   useEffect(() => {
@@ -688,7 +688,8 @@ const VideoPlayer = () => {
     } catch {
       // Silent error - we expect some calls to fail
     }
-  }, [playerRef, debugInfo.availableQualities, debugInfo.quality]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Loại bỏ tất cả dependencies để ngăn vòng lặp vô hạn
 
   // Add more frequent quality enforcement
   useEffect(() => {
@@ -712,11 +713,7 @@ const VideoPlayer = () => {
       clearInterval(mainInterval);
       timeoutIds.forEach((id) => clearTimeout(id));
     };
-  }, [
-    videoState.nowPlayingData?.video_id,
-    enforceHDQuality,
-    playerRef.current,
-  ]);
+  }, [videoState.nowPlayingData?.video_id, enforceHDQuality]);
 
   // Handle YouTube playback quality change
   const handlePlaybackQualityChange = useCallback(
@@ -1265,7 +1262,7 @@ const VideoPlayer = () => {
     }, 3000); // Kiểm tra mỗi 3 giây
 
     return () => clearInterval(audioCheckInterval);
-  }, [videoState.nowPlayingData, volume]);
+  }, [videoState.nowPlayingData?.video_id, volume]);
 
   // If videos are turned off, show RecordingStudio component
   if (isVideoOff) {
