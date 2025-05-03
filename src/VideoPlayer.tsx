@@ -799,7 +799,7 @@ const YouTubePlayer = () => {
           (!videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined),
         host: "https://www.youtube.com",
         playerVars: {
-          autoplay: 1,
+          autoplay: 0, // Tắt autoplay để có thể kiểm soát khi nào phát video
           controls: 0,
           modestbranding: 1,
           rel: 0,
@@ -809,10 +809,10 @@ const YouTubePlayer = () => {
           playsinline: 1,
           mute: 0,
           disablekb: 1,
-          vq: !videoState.nowPlayingData ? "tiny" : "hd1080",
+          vq: !videoState.nowPlayingData ? "tiny" : "hd1080", // Giới hạn ở 1080p
           loop: !videoState.nowPlayingData ? 1 : 0,
           playlist: !videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined,
-          quality: "hd1080",
+          quality: "hd1080", // Chỉ yêu cầu tối đa 1080p
           hd: 1,
           hl: "vi",
           cc_load_policy: 0,
@@ -822,7 +822,7 @@ const YouTubePlayer = () => {
         },
         events: {
           onReady: (event: any) => {
-            // Ép chất lượng ngay khi player sẵn sàng
+            // Ép chất lượng ngay khi player sẵn sàng, giới hạn ở 1080p
             event.target.setPlaybackQuality(
               !videoState.nowPlayingData ? "tiny" : "hd1080"
             );
@@ -849,14 +849,19 @@ const YouTubePlayer = () => {
                     : "";
                   console.log("Current quality:", currentQuality);
 
-                  // Lấy danh sách chất lượng có sẵn
-                  const availableQualities = event.target
-                    .getAvailableQualityLevels
-                    ? event.target.getAvailableQualityLevels()
-                    : [];
-                  console.log("Available qualities:", availableQualities);
+                  // Lấy danh sách chất lượng có sẵn và giới hạn tối đa ở 1080p
+                  const availableQualities = (
+                    event.target.getAvailableQualityLevels?.() || []
+                  ).filter(
+                    (q: string) =>
+                      q !== "highres" && q !== "hd2160" && q !== "hd1440"
+                  );
+                  console.log(
+                    "Available qualities (max 1080p):",
+                    availableQualities
+                  );
 
-                  // Thứ tự chất lượng ưu tiên - chỉ bao gồm chất lượng cao
+                  // Thứ tự chất lượng ưu tiên - chỉ bao gồm chất lượng cao nhưng giới hạn ở 1080p
                   const qualityPriority = ["hd1080", "hd720"];
 
                   // Tìm chất lượng cao nhất có sẵn
@@ -878,46 +883,26 @@ const YouTubePlayer = () => {
                     event.target.setPlaybackQuality(bestAvailableQuality);
                   }
 
-                  // Tăng ngưỡng buffer lên ít nhất 25% để đảm bảo video đủ nét
-                  if (bufferPercent >= 25 && isBuffering) {
-                    isBuffering = false;
-                    console.log(
-                      "Buffer đủ để phát, bắt đầu phát video với chất lượng tốt..."
-                    );
+                  // Cố gắng đặt chất lượng video ngay từ đầu
+                  if (bestAvailableQuality !== "auto") {
+                    event.target.setPlaybackQuality(bestAvailableQuality);
+                  }
 
-                    // Cố gắng buộc chất lượng cao trước khi phát
+                  // Tăng ngưỡng buffer lên ít nhất 30% để đảm bảo video đủ nét
+                  if (bufferPercent >= 30 && isBuffering) {
+                    // Thử áp dụng chất lượng cao trước khi bắt đầu phát
                     if (bestAvailableQuality !== "auto") {
+                      // Thử áp dụng lần cuối trước khi phát
                       event.target.setPlaybackQuality(bestAvailableQuality);
-                      // Đợi thêm một chút để chất lượng được áp dụng
-                      setTimeout(() => {
-                        if (videoState.nowPlayingData) {
-                          const currentServerTime =
-                            videoState.nowPlayingData.timestamp +
-                            (Date.now() - videoState.nowPlayingData.timestamp) /
-                              1000;
-                          const targetTime =
-                            videoState.nowPlayingData.currentTime +
-                            (currentServerTime -
-                              videoState.nowPlayingData.timestamp);
-                          event.target.seekTo(targetTime, true);
-                        }
+                    }
 
-                        event.target.playVideo();
-                        setVideoState((prev) => ({
-                          ...prev,
-                          isBuffering: false,
-                          isPaused: false,
-                        }));
-                        setIsChangingSong(false);
+                    // Đợi thêm một chút để chất lượng cải thiện nếu có thể
+                    setTimeout(() => {
+                      isBuffering = false;
+                      console.log(
+                        "Buffer đủ để phát, bắt đầu phát video với chất lượng tốt..."
+                      );
 
-                        event.target.setVolume(volume);
-
-                        socket?.emit("video_ready", {
-                          roomId: roomId,
-                          videoId: videoState.nowPlayingData?.video_id,
-                        });
-                      }, 500);
-                    } else {
                       // Chỉ seek time khi có video chính
                       if (videoState.nowPlayingData) {
                         const currentServerTime =
@@ -931,6 +916,7 @@ const YouTubePlayer = () => {
                         event.target.seekTo(targetTime, true);
                       }
 
+                      // Bắt đầu phát video
                       event.target.playVideo();
                       setVideoState((prev) => ({
                         ...prev,
@@ -938,7 +924,33 @@ const YouTubePlayer = () => {
                         isPaused: false,
                       }));
                       setIsChangingSong(false);
-                    }
+
+                      // Đặt lại volume
+                      event.target.setVolume(volume);
+
+                      // Thông báo video sẵn sàng
+                      socket?.emit("video_ready", {
+                        roomId: roomId,
+                        videoId: videoState.nowPlayingData?.video_id,
+                      });
+                    }, 800); // Đợi thêm 800ms để đảm bảo chất lượng được áp dụng
+
+                    return;
+                  }
+
+                  // Hiển thị % buffer trong console cho dễ theo dõi
+                  const remainingPercent = 30 - bufferPercent;
+                  if (remainingPercent > 0) {
+                    console.log(
+                      `Còn cần thêm ${remainingPercent.toFixed(
+                        2
+                      )}% buffer để đạt 30%`
+                    );
+                  }
+
+                  // Nếu chưa buffer đủ, tiếp tục kiểm tra
+                  if (isBuffering) {
+                    setTimeout(checkBufferState, 250); // Kiểm tra mỗi 250ms
                   }
                 } catch (error) {
                   console.error("Lỗi khi kiểm tra buffer:", error);
@@ -1002,13 +1014,20 @@ const YouTubePlayer = () => {
 
             // Ép chất lượng mỗi khi video đang chạy để đảm bảo không bị YouTube override
             if (event.data === YT.PLAYING && videoState.nowPlayingData) {
-              // Thử áp dụng nhiều mức chất lượng
+              // Thử áp dụng nhiều mức chất lượng, giới hạn tối đa ở 1080p
               const tryQualityLevels = ["hd1080", "hd720", "large"];
 
-              // Lấy danh sách chất lượng có sẵn
-              const availableQualities =
-                event.target.getAvailableQualityLevels?.() || [];
-              console.log("Available qualities:", availableQualities);
+              // Lấy danh sách chất lượng có sẵn và giới hạn tối đa ở 1080p
+              const availableQualities = (
+                event.target.getAvailableQualityLevels?.() || []
+              ).filter(
+                (q: string) =>
+                  q !== "highres" && q !== "hd2160" && q !== "hd1440"
+              );
+              console.log(
+                "Available qualities (max 1080p):",
+                availableQualities
+              );
 
               // Tìm chất lượng tốt nhất có sẵn
               let bestQuality = "auto";
@@ -1039,15 +1058,18 @@ const YouTubePlayer = () => {
           onPlaybackQualityChange: (event: any) => {
             console.log("Quality changed:", event.data);
 
-            // Lấy danh sách chất lượng có sẵn
-            const availableQualities =
-              event.target.getAvailableQualityLevels?.() || [];
+            // Lấy danh sách chất lượng có sẵn và giới hạn tối đa ở 1080p
+            const availableQualities = (
+              event.target.getAvailableQualityLevels?.() || []
+            ).filter(
+              (q: string) => q !== "highres" && q !== "hd2160" && q !== "hd1440"
+            );
             console.log(
-              "Available qualities on quality change:",
+              "Available qualities on quality change (max 1080p):",
               availableQualities
             );
 
-            // Thứ tự chất lượng ưu tiên
+            // Thứ tự chất lượng ưu tiên, giới hạn ở 1080p
             const qualityPriority = ["hd1080", "hd720", "large", "medium"];
 
             // Nếu chất lượng hiện tại không phải là chất lượng cao nhất có sẵn
@@ -1717,11 +1739,16 @@ const YouTubePlayer = () => {
 
       {/* Hiển thị buffer indicator */}
       {videoState.isBuffering && !isChangingSong && (
-        <div className="absolute bottom-6 right-6 z-40 flex items-center bg-black/70 px-3 py-1.5 rounded-lg">
-          <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
-          <span className="text-white text-sm">
-            Đang cải thiện chất lượng...
-          </span>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
+          <div className="bg-black/70 rounded-lg p-6 flex flex-col items-center max-w-md">
+            <div className="animate-spin w-12 h-12 border-4 border-white border-t-transparent rounded-full mb-4"></div>
+            <p className="text-white text-xl font-bold mb-2">
+              Đang tải chất lượng cao nhất
+            </p>
+            <p className="text-white/80 text-center">
+              Chờ một chút để có trải nghiệm video nét nhất
+            </p>
+          </div>
         </div>
       )}
 
