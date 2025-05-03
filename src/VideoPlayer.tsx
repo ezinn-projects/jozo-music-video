@@ -594,6 +594,11 @@ const YouTubePlayer = () => {
             videoId: data.video_id,
             startSeconds: startTime, // Bắt đầu từ thời điểm hiện tại của bài hát
           });
+
+          // Đảm bảo thiết lập volume
+          if (playerRef.current?.setVolume) {
+            playerRef.current.setVolume(volume);
+          }
         }
       }
     };
@@ -639,6 +644,11 @@ const YouTubePlayer = () => {
           videoId: data.video_id,
           startSeconds: 0, // Bắt đầu từ đầu
         });
+
+        // Đảm bảo thiết lập volume trước khi pause
+        if (playerRef.current?.setVolume) {
+          playerRef.current.setVolume(volume);
+        }
 
         // Đảm bảo Player ở trạng thái pause
         setTimeout(() => {
@@ -710,6 +720,11 @@ const YouTubePlayer = () => {
           videoId: FALLBACK_VIDEO_ID,
           startSeconds: 0,
         });
+
+        // Đảm bảo thiết lập volume cho video fallback
+        if (playerRef.current?.setVolume) {
+          playerRef.current.setVolume(volume);
+        }
       }
     };
 
@@ -727,6 +742,7 @@ const YouTubePlayer = () => {
   }, [
     socket,
     FALLBACK_VIDEO_ID,
+    volume, // Thêm volume vào dependency list
     // backupState.backupUrl, backupVideoRef và setBackupState được sử dụng trong useEffect
     // nhưng không thể thêm vào dependency array do gây ra circular dependency
   ]);
@@ -1388,14 +1404,14 @@ const YouTubePlayer = () => {
         document
           .exitFullscreen()
           .catch((e) => console.error("Error exiting fullscreen:", e));
-      } else {
+      } else if (containerRef.current) {
         containerRef.current
-          ?.requestFullscreen()
+          .requestFullscreen()
           .catch((e) => console.error("Error entering fullscreen:", e));
       }
     }
     setLastTap(now);
-  }, [lastTap, containerRef]);
+  }, [lastTap]);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -1559,6 +1575,11 @@ const YouTubePlayer = () => {
         videoId: videoId,
         startSeconds: 0,
       });
+
+      // Đảm bảo thiết lập volume
+      if (playerRef.current?.setVolume) {
+        playerRef.current.setVolume(volume);
+      }
 
       // Cập nhật state
       setVideoState((prev) => ({
