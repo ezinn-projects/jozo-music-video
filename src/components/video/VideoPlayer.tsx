@@ -405,54 +405,6 @@ const VideoPlayer = () => {
     }
   }, [videoState.nowPlayingData?.video_id]);
 
-  // Ref để theo dõi xem đã hiển thị powered by ở cuối video chưa
-  const hasShownEndingRef = useRef(false);
-
-  // Show "Powered by Jozo" at end of song
-  useEffect(() => {
-    if (!videoState.nowPlayingData?.video_id || !playerRef.current) return;
-
-    // Reset flag khi video thay đổi
-    hasShownEndingRef.current = false;
-
-    const checkEndingInterval = setInterval(() => {
-      try {
-        if (
-          !playerRef.current ||
-          !playerRef.current.getCurrentTime ||
-          !playerRef.current.getDuration
-        ) {
-          return;
-        }
-
-        const currentTime = playerRef.current.getCurrentTime();
-        const duration = playerRef.current.getDuration();
-
-        // Kiểm tra các giá trị để tránh tính toán sai
-        if (isNaN(currentTime) || isNaN(duration) || duration <= 0) {
-          return;
-        }
-
-        // Chỉ hiển thị trong 10 giây cuối và chỉ khi chưa hiển thị
-        if (
-          duration - currentTime <= 10 &&
-          !showPoweredBy &&
-          !hasShownEndingRef.current
-        ) {
-          console.log("Showing powered by at end of song");
-          hasShownEndingRef.current = true; // Đánh dấu đã hiển thị
-          setShowPoweredBy(true);
-        }
-      } catch (error) {
-        console.error("Error checking song ending time:", error);
-      }
-    }, 1000);
-
-    return () => {
-      clearInterval(checkEndingInterval);
-    };
-  }, [videoState.nowPlayingData?.video_id, showPoweredBy]);
-
   // Handle double tap for fullscreen toggle
   const handleDoubleTap = useCallback(() => {
     const now = Date.now();
@@ -610,31 +562,7 @@ const VideoPlayer = () => {
     [videoState.nowPlayingData, volume, socket, roomId, setBackupState]
   );
 
-  // Add a useEffect to continously ensure HD quality
-  useEffect(() => {
-    if (!playerRef.current || !videoState.nowPlayingData) return;
-
-    const forceHDQuality = () => {
-      try {
-        if (playerRef.current && playerRef.current.setPlaybackQuality) {
-          console.log("Enforcing HD quality check");
-          playerRef.current.setPlaybackQuality("hd1080");
-        }
-      } catch (error) {
-        console.error("Error enforcing HD quality:", error);
-      }
-    };
-
-    // Force HD quality immediately
-    forceHDQuality();
-
-    // Then check and enforce every 2 seconds
-    const intervalId = setInterval(forceHDQuality, 2000);
-
-    return () => clearInterval(intervalId);
-  }, [videoState.nowPlayingData?.video_id]);
-
-  // Add effect to monitor and log quality issues
+  // useEffect to monitor and log quality issues
   useEffect(() => {
     // Chỉ chạy trong chế độ development và khi có thay đổi chất lượng
     if (!debugInfo.isDevMode || !debugInfo.quality) return;
@@ -661,59 +589,6 @@ const VideoPlayer = () => {
       }
     }
   }, [debugInfo.quality, debugInfo.qualityChangeCount, debugInfo.isDevMode]);
-
-  // Aggressively enforce HD quality - called frequently
-  const enforceHDQuality = useCallback(() => {
-    if (!playerRef.current?.setPlaybackQuality) return;
-
-    try {
-      // Try more aggressive quality setting methods
-      playerRef.current.setPlaybackQuality("hd1080");
-
-      // Try to get available qualities if we haven't done so
-      if (
-        playerRef.current.getAvailableQualityLevels &&
-        (!debugInfo.availableQualities.length || debugInfo.quality !== "hd1080")
-      ) {
-        const qualities = playerRef.current.getAvailableQualityLevels();
-        // Cẩn thận: Chỉ cập nhật state khi thực sự có sự thay đổi
-        if (
-          JSON.stringify(qualities) !==
-          JSON.stringify(debugInfo.availableQualities)
-        ) {
-          console.log("Available quality levels:", qualities);
-          setDebugInfo((prev) => ({ ...prev, availableQualities: qualities }));
-        }
-      }
-    } catch {
-      // Silent error - we expect some calls to fail
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Loại bỏ tất cả dependencies để ngăn vòng lặp vô hạn
-
-  // Add more frequent quality enforcement
-  useEffect(() => {
-    // Đảm bảo chỉ chạy khi có video
-    if (!videoState.nowPlayingData?.video_id || !playerRef.current) return;
-
-    // Enforce quality immediately
-    enforceHDQuality();
-
-    // Giảm tần suất gọi để tránh useEffect quá nhiều lần
-    const mainInterval = setInterval(enforceHDQuality, 2000); // 2 giây một lần
-
-    // Thay vì nhiều timeout, chỉ sử dụng một vài thời điểm quan trọng
-    const timeoutIds: NodeJS.Timeout[] = [];
-    [2, 5, 10].forEach((seconds) => {
-      const id = setTimeout(enforceHDQuality, seconds * 1000);
-      timeoutIds.push(id);
-    });
-
-    return () => {
-      clearInterval(mainInterval);
-      timeoutIds.forEach((id) => clearTimeout(id));
-    };
-  }, [videoState.nowPlayingData?.video_id, enforceHDQuality]);
 
   // Handle YouTube playback quality change
   const handlePlaybackQualityChange = useCallback(
@@ -1231,20 +1106,55 @@ const VideoPlayer = () => {
     }
   }, [isChangingSong, videoState.nowPlayingData]);
 
-  // Thêm đoạn code để kiểm tra âm thanh định kỳ
+  // Khai báo hasShownEndingRef
+  const hasShownEndingRef = useRef(false);
+
+  // Kết hợp các interval riêng lẻ thành một interval đa nhiệm
   useEffect(() => {
-    // Chỉ kiểm tra khi có video đang phát
-    if (!videoState.nowPlayingData || !playerRef.current) return;
+    // Chỉ chạy khi có video đang phát
+    if (!videoState.nowPlayingData?.video_id) return;
 
-    // Kiểm tra định kỳ trạng thái mute và volume
-    const audioCheckInterval = setInterval(() => {
+    console.log(
+      "Setting up combined interval checks for video:",
+      videoState.nowPlayingData.video_id
+    );
+
+    // Tạo một interval đa chức năng thực hiện nhiều kiểm tra
+    const combinedInterval = setInterval(() => {
+      if (!playerRef.current) return;
+
+      // 1. Kiểm tra và ép chất lượng HD
       try {
-        if (!playerRef.current) return;
+        playerRef.current.setPlaybackQuality?.("hd1080");
 
-        // Kiểm tra xem player có bị mute không
+        // Kiểm tra và log các chất lượng có sẵn (giới hạn tần suất cập nhật)
+        if (
+          playerRef.current.getAvailableQualityLevels &&
+          Math.random() < 0.3
+        ) {
+          // Chỉ 30% lần kiểm tra
+          const qualities = playerRef.current.getAvailableQualityLevels();
+          if (
+            JSON.stringify(qualities) !==
+            JSON.stringify(debugInfo.availableQualities)
+          ) {
+            console.log("Available quality levels:", qualities);
+            setDebugInfo((prev) => ({
+              ...prev,
+              availableQualities: qualities,
+            }));
+          }
+        }
+      } catch {
+        // Ignore quality errors
+      }
+
+      // 2. Kiểm tra âm thanh và sửa nếu cần
+      try {
+        // Kiểm tra mute
         const isMuted = playerRef.current.isMuted?.() || false;
         if (isMuted) {
-          console.log("Periodic check: Player is muted, unmuting");
+          console.log("Combined check: Player is muted, unmuting");
           playerRef.current.unMute?.();
         }
 
@@ -1252,17 +1162,51 @@ const VideoPlayer = () => {
         const currentVolume = playerRef.current.getVolume?.() || 0;
         if (Math.abs(currentVolume - volume) > 5) {
           console.log(
-            `Periodic check: Volume incorrect ${currentVolume}, setting to ${volume}`
+            `Combined check: Volume incorrect ${currentVolume}, setting to ${volume}`
           );
           playerRef.current.setVolume?.(volume);
         }
       } catch {
+        // Ignore audio errors
+      }
+
+      // 3. Kiểm tra video kết thúc hiển thị powered by (thay thế interval cũ)
+      try {
+        if (
+          playerRef.current.getCurrentTime &&
+          playerRef.current.getDuration &&
+          !hasShownEndingRef.current
+        ) {
+          const currentTime = playerRef.current.getCurrentTime();
+          const duration = playerRef.current.getDuration();
+
+          // Kiểm tra các giá trị để tránh tính toán sai
+          if (!isNaN(currentTime) && !isNaN(duration) && duration > 0) {
+            // Chỉ hiển thị trong 10 giây cuối và chỉ khi chưa hiển thị
+            if (
+              duration - currentTime <= 10 &&
+              !showPoweredBy &&
+              !hasShownEndingRef.current
+            ) {
+              console.log("Combined check: Showing powered by at end of song");
+              hasShownEndingRef.current = true; // Đánh dấu đã hiển thị
+              setShowPoweredBy(true);
+            }
+          }
+        }
+      } catch {
         // Ignore errors
       }
-    }, 3000); // Kiểm tra mỗi 3 giây
+    }, 3000); // Kiểm tra mỗi 3 giây - đủ cho hầu hết các trường hợp
 
-    return () => clearInterval(audioCheckInterval);
-  }, [videoState.nowPlayingData?.video_id, volume]);
+    return () => {
+      console.log(
+        "Clearing combined interval for video:",
+        videoState.nowPlayingData?.video_id
+      );
+      clearInterval(combinedInterval);
+    };
+  }, [videoState.nowPlayingData?.video_id, volume, showPoweredBy]);
 
   // If videos are turned off, show RecordingStudio component
   if (isVideoOff) {
