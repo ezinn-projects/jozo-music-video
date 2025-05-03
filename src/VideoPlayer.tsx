@@ -626,7 +626,7 @@ const YouTubePlayer = () => {
         },
         currentVideoId: data.video_id,
         isBuffering: true,
-        isPaused: true, // Đặt isPaused = true để chặn phát tự động
+        isPaused: false, // Đặt isPaused = false để tự động phát
       }));
 
       // Reset backup states
@@ -639,23 +639,16 @@ const YouTubePlayer = () => {
       });
 
       if (playerRef.current?.loadVideoById) {
-        // Thay vì sử dụng loadVideoById (tự động phát), sử dụng cueVideoById (chỉ tải không phát)
-        playerRef.current.cueVideoById({
+        // Sử dụng loadVideoById thay vì cueVideoById để tự động phát
+        playerRef.current.loadVideoById({
           videoId: data.video_id,
           startSeconds: 0, // Bắt đầu từ đầu
         });
 
-        // Đảm bảo thiết lập volume trước khi pause
+        // Đảm bảo thiết lập volume
         if (playerRef.current?.setVolume) {
           playerRef.current.setVolume(volume);
         }
-
-        // Đảm bảo Player ở trạng thái pause
-        setTimeout(() => {
-          if (playerRef.current?.pauseVideo) {
-            playerRef.current.pauseVideo();
-          }
-        }, 100);
       }
     };
 
@@ -757,6 +750,10 @@ const YouTubePlayer = () => {
       switch (event.data) {
         case YT.BUFFERING:
           setVideoState((prev) => ({ ...prev, isBuffering: true }));
+          // Đảm bảo âm lượng được thiết lập khi buffer
+          if (playerRef.current?.setVolume) {
+            playerRef.current.setVolume(volume);
+          }
           break;
         case YT.PLAYING:
           console.log("Video is now playing");
@@ -765,6 +762,17 @@ const YouTubePlayer = () => {
             isBuffering: false,
             isPaused: false,
           }));
+
+          // Đảm bảo âm lượng được thiết lập và video không bị mute khi đang phát
+          if (playerRef.current?.setVolume) {
+            if (playerRef.current.isMuted && playerRef.current.unMute) {
+              playerRef.current.unMute();
+              console.log("Unmuting video during playback");
+            }
+            playerRef.current.setVolume(volume);
+            console.log("Setting volume during playback:", volume);
+          }
+
           socket.emit("video_event", {
             roomId,
             event: "play",
@@ -792,7 +800,7 @@ const YouTubePlayer = () => {
           break;
       }
     },
-    [socket, roomId, videoState.nowPlayingData]
+    [socket, roomId, videoState.nowPlayingData, volume]
   );
 
   useEffect(() => {
@@ -857,10 +865,10 @@ const YouTubePlayer = () => {
               setVideoState((prev) => ({ ...prev, isBuffering: true }));
               setIsChangingSong(true);
 
-              // Vô hiệu hóa autoplay mặc định của YouTube
-              if (event.target.pauseVideo) {
-                event.target.pauseVideo();
-              }
+              // Đặt âm lượng ngay từ đầu và đảm bảo không bị mute
+              event.target.unMute();
+              event.target.setVolume(volume);
+              console.log("Setting initial volume to:", volume);
 
               // Đặt chất lượng cao nhất ngay từ đầu
               if (event.target.setPlaybackQuality) {
@@ -1428,9 +1436,11 @@ const YouTubePlayer = () => {
 
   useEffect(() => {
     if (isChangingSong) {
+      // Luôn reset isChangingSong sau tối đa 6 giây để tránh trường hợp bị kẹt ở trạng thái này
       const timeout = setTimeout(() => {
+        console.log("Force reset isChangingSong after timeout");
         setIsChangingSong(false);
-      }, 10000); // Reset sau 10 giây nếu vẫn đang loading
+      }, 6000);
 
       return () => clearTimeout(timeout);
     }
@@ -1895,7 +1905,7 @@ const YouTubePlayer = () => {
       )}
 
       {/* Fallback overlay - hiển thị khi không có bài hát nào đang phát */}
-      {!videoState.nowPlayingData?.video_id && (
+      {!videoState.nowPlayingData?.video_id && !isChangingSong && (
         <div className="absolute inset-0 bg-gradient-to-br from-purple-900/90 via-black/95 to-pink-900/90 z-[30] flex flex-col items-center justify-center">
           <div className="relative mb-8">
             <img
