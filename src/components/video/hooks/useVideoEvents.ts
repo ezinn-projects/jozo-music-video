@@ -23,6 +23,7 @@ interface YouTubePlayerRef {
   playVideo: () => void;
   pauseVideo: () => void;
   setPlaybackQuality: (quality: string) => void;
+  unMute?: () => void;
 }
 
 interface UseVideoEventsProps {
@@ -102,6 +103,13 @@ export function useVideoEvents({
         });
 
         if (playerRef.current?.loadVideoById) {
+          // Thêm mới: Đảm bảo player không bị mute trước khi load video mới
+          try {
+            playerRef.current.unMute?.();
+          } catch (e) {
+            console.error("Error unmuting during current song update:", e);
+          }
+
           // Calculate current time based on timestamp
           const elapsedTime = (Date.now() - data.timestamp) / 1000;
           const startTime = data.currentTime + elapsedTime;
@@ -151,6 +159,14 @@ export function useVideoEvents({
       });
 
       if (playerRef.current?.loadVideoById) {
+        // Thêm mới: Đảm bảo player không bị mute trước khi load video mới
+        try {
+          playerRef.current.unMute?.();
+          console.log("Unmuting player before loading new song");
+        } catch (e) {
+          console.error("Error unmuting during play song:", e);
+        }
+
         playerRef.current.loadVideoById({
           videoId: data.video_id,
           startSeconds: 0, // Start from beginning
@@ -190,8 +206,25 @@ export function useVideoEvents({
           case "play":
             console.log("Playing YouTube video");
             playerRef.current.seekTo(data.currentTime, true);
+
+            // Đảm bảo video không bị mute trước khi phát
+            try {
+              playerRef.current.unMute?.();
+            } catch (e) {
+              console.error("Error unmuting during play event:", e);
+            }
+
             playerRef.current.playVideo();
             setVideoState((prev) => ({ ...prev, isPaused: false }));
+
+            // Thêm kiểm tra sau khi phát để đảm bảo không bị mute
+            setTimeout(() => {
+              try {
+                playerRef.current?.unMute?.();
+              } catch {
+                // Ignore errors
+              }
+            }, 500);
             break;
           case "pause":
             console.log("Pausing YouTube video");

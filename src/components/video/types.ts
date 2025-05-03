@@ -78,7 +78,9 @@ export interface YouTubePlayerRef {
   seekTo: (seconds: number, allowSeekAhead: boolean) => void;
   mute: () => void;
   unMute: () => void;
+  isMuted?: () => boolean;
   setVolume: (volume: number) => void;
+  getVolume?: () => number;
   getVideoData: () => { video_id: string };
   getCurrentTime: () => number;
   getDuration: () => number;

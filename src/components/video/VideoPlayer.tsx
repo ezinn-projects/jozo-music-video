@@ -35,6 +35,9 @@ interface YouTubePlayerEvent {
     getCurrentTime: () => number;
     getDuration: () => number;
     setPlaybackQualityRange?: (min: string, max: string) => void;
+    unMute?: () => void;
+    isMuted?: () => boolean;
+    getVolume?: () => number;
   };
 }
 
@@ -225,6 +228,19 @@ const VideoPlayer = () => {
             isBuffering: false,
             isPaused: false,
           }));
+
+          // Thêm mới: Kiểm tra và đảm bảo video không bị mute khi bắt đầu phát
+          try {
+            const isMuted = playerRef.current.isMuted?.() || false;
+            if (isMuted) {
+              console.log("Player muted while playing, force unmuting");
+              playerRef.current.unMute?.();
+              playerRef.current.setVolume?.(volume);
+            }
+          } catch (e) {
+            console.error("Error checking mute state during play:", e);
+          }
+
           socket.emit("video_event", {
             roomId,
             event: "play",
@@ -255,7 +271,7 @@ const VideoPlayer = () => {
           break;
       }
     },
-    [socket, roomId, videoState.nowPlayingData, handleVideoEnd]
+    [socket, roomId, videoState.nowPlayingData, handleVideoEnd, volume]
   );
 
   // Rotate cute messages
@@ -501,6 +517,42 @@ const VideoPlayer = () => {
         console.error("Error setting initial HD quality:", e);
       }
 
+      // Đảm bảo unmute và đặt volume trước khi bắt đầu phát
+      try {
+        // QUAN TRỌNG: Đảm bảo player không bị mute
+        event.target.unMute?.();
+        console.log("Explicitly unmuting player during ready event");
+
+        // Thiết lập volume
+        event.target.setVolume(volume);
+        console.log("Setting volume during ready event:", volume);
+
+        // Thêm kiểm tra bổ sung sau một chút thời gian
+        setTimeout(() => {
+          try {
+            // Kiểm tra xem player có bị mute không
+            const isMuted = event.target.isMuted?.() || false;
+            if (isMuted) {
+              console.log("Player still muted after setup, force unmuting");
+              event.target.unMute?.();
+            }
+
+            // Kiểm tra lại volume
+            const currentVolume = event.target.getVolume?.() || 0;
+            if (currentVolume !== volume) {
+              console.log(
+                `Volume incorrect: ${currentVolume}, setting to ${volume}`
+              );
+              event.target.setVolume(volume);
+            }
+          } catch (e) {
+            console.error("Error during unmute validation:", e);
+          }
+        }, 1000);
+      } catch (e) {
+        console.error("Error unmuting player:", e);
+      }
+
       try {
         event.target.playVideo();
 
@@ -519,8 +571,14 @@ const VideoPlayer = () => {
         }
       } catch (e) {
         console.error("Error playing video:", e);
-        event.target.mute();
-        event.target.playVideo();
+
+        // THAY ĐỔI: Không còn tự động mute nếu có lỗi phát video
+        // Thay vào đó, cố gắng phát video nhưng giữ unmute
+        try {
+          event.target.playVideo();
+        } catch (playError) {
+          console.error("Error during fallback play:", playError);
+        }
 
         // Still try to seek time if there's an active video
         if (videoState.nowPlayingData) {
@@ -538,7 +596,10 @@ const VideoPlayer = () => {
         }
       }
 
+      // Đảm bảo thiết lập volume và unmute
+      event.target.unMute?.();
       event.target.setVolume(volume);
+
       socket?.emit("video_ready", {
         roomId: roomId,
         videoId: videoState.nowPlayingData?.video_id,
@@ -546,7 +607,7 @@ const VideoPlayer = () => {
       setVideoState((prev) => ({ ...prev, isPaused: false }));
       setIsChangingSong(false);
     },
-    [videoState.nowPlayingData, volume, socket, roomId]
+    [videoState.nowPlayingData, volume, socket, roomId, setBackupState]
   );
 
   // Add a useEffect to continously ensure HD quality
@@ -1172,6 +1233,39 @@ const VideoPlayer = () => {
       return () => clearTimeout(forceHideTimer);
     }
   }, [isChangingSong, videoState.nowPlayingData]);
+
+  // Thêm đoạn code để kiểm tra âm thanh định kỳ
+  useEffect(() => {
+    // Chỉ kiểm tra khi có video đang phát
+    if (!videoState.nowPlayingData || !playerRef.current) return;
+
+    // Kiểm tra định kỳ trạng thái mute và volume
+    const audioCheckInterval = setInterval(() => {
+      try {
+        if (!playerRef.current) return;
+
+        // Kiểm tra xem player có bị mute không
+        const isMuted = playerRef.current.isMuted?.() || false;
+        if (isMuted) {
+          console.log("Periodic check: Player is muted, unmuting");
+          playerRef.current.unMute?.();
+        }
+
+        // Kiểm tra volume
+        const currentVolume = playerRef.current.getVolume?.() || 0;
+        if (Math.abs(currentVolume - volume) > 5) {
+          console.log(
+            `Periodic check: Volume incorrect ${currentVolume}, setting to ${volume}`
+          );
+          playerRef.current.setVolume?.(volume);
+        }
+      } catch {
+        // Ignore errors
+      }
+    }, 3000); // Kiểm tra mỗi 3 giây
+
+    return () => clearInterval(audioCheckInterval);
+  }, [videoState.nowPlayingData, volume]);
 
   // If videos are turned off, show RecordingStudio component
   if (isVideoOff) {

@@ -245,6 +245,24 @@ export function useBackupVideo({
       isLoadingBackup: false,
     }));
 
+    // Chỉ tắt tiếng YouTube khi backup video đã thực sự sẵn sàng
+    if (backupVideoRef.current) {
+      try {
+        // Đảm bảo backup video có âm thanh trước khi tắt tiếng YouTube player
+        backupVideoRef.current.volume = volume / 100;
+        backupVideoRef.current.muted = false;
+
+        console.log(
+          "Backup video audio settings: volume =",
+          volume / 100,
+          "muted =",
+          false
+        );
+      } catch (e) {
+        console.error("Error setting backup audio:", e);
+      }
+    }
+
     // Sử dụng giá trị mới nhất cho socket event
     socket?.emit("video_ready", {
       roomId: currentRoomId,
@@ -295,7 +313,7 @@ export function useBackupVideo({
             );
           });
       }
-    }, 500); // Delay 500ms để đảm bảo các phương thức tắt tiếng YouTube đã hoàn thành
+    }, 100); // Giảm delay xuống 100ms để bắt đầu phát nhanh hơn
   }, [socket, onVideoReady, volume]);
 
   // Handler for backup video error
