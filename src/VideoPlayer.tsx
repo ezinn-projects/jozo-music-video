@@ -846,6 +846,12 @@ const YouTubePlayer = () => {
                 event.target.pauseVideo();
               }
 
+              // Đặt chất lượng cao nhất ngay từ đầu
+              if (event.target.setPlaybackQuality) {
+                event.target.setPlaybackQuality("hd1080");
+                console.log("Setting initial quality to hd1080");
+              }
+
               // Kiểm tra khi video đã buffer đủ (onVideoData thường được gọi khi đã có metadata)
               const checkBufferState = () => {
                 try {
@@ -907,78 +913,77 @@ const YouTubePlayer = () => {
                   const hasHighQuality =
                     currentQuality === "hd1080" || currentQuality === "hd720";
 
-                  if (bufferPercent >= 60 && isBuffering && hasHighQuality) {
-                    // Thử áp dụng chất lượng cao lần cuối trước khi bắt đầu phát
+                  // Đảm bảo video ở chất lượng cao nhất trước khi bắt đầu phát
+                  if (bufferPercent >= 60 && isBuffering) {
+                    // Thử áp dụng chất lượng cao một lần nữa trước khi bắt đầu phát
                     if (bestAvailableQuality !== "auto") {
-                      // Thử áp dụng lần cuối trước khi phát
+                      console.log(
+                        "Applying best quality before playback:",
+                        bestAvailableQuality
+                      );
                       event.target.setPlaybackQuality(bestAvailableQuality);
                     }
 
-                    // Đợi thêm thời gian để đảm bảo chất lượng được áp dụng
+                    // Đợi thêm 500ms để đảm bảo chất lượng được áp dụng
                     setTimeout(() => {
-                      isBuffering = false;
+                      // Kiểm tra chất lượng hiện tại sau khi đã đặt
+                      const finalQuality = event.target.getPlaybackQuality
+                        ? event.target.getPlaybackQuality()
+                        : "";
+
                       console.log(
-                        "Buffer đủ để phát, bắt đầu phát video với chất lượng tốt..."
+                        `Chất lượng cuối cùng trước khi phát: ${finalQuality}`
                       );
 
-                      // Chỉ seek time khi có video chính
-                      if (videoState.nowPlayingData) {
-                        const currentServerTime =
-                          videoState.nowPlayingData.timestamp +
-                          (Date.now() - videoState.nowPlayingData.timestamp) /
-                            1000;
-                        const targetTime =
-                          videoState.nowPlayingData.currentTime +
-                          (currentServerTime -
-                            videoState.nowPlayingData.timestamp);
-                        event.target.seekTo(targetTime, true);
-                      }
+                      // Tiếp tục chỉ khi đã đạt được chất lượng cao
+                      if (
+                        finalQuality === "hd1080" ||
+                        finalQuality === "hd720" ||
+                        bufferPercent >= 90
+                      ) {
+                        isBuffering = false;
+                        console.log(
+                          "Buffer đủ và chất lượng tốt, bắt đầu phát video..."
+                        );
 
-                      // Bắt đầu phát video
-                      event.target.playVideo();
-                      setVideoState((prev) => ({
-                        ...prev,
-                        isBuffering: false,
-                        isPaused: false,
-                      }));
-                      setIsChangingSong(false);
-
-                      // Đặt lại volume
-                      event.target.setVolume(volume);
-
-                      // Thông báo video sẵn sàng
-                      socket?.emit("video_ready", {
-                        roomId: roomId,
-                        videoId: videoState.nowPlayingData?.video_id,
-                      });
-
-                      // Thêm kiểm tra liên tục chất lượng sau khi bắt đầu phát
-                      const qualityCheckInterval = setInterval(() => {
-                        try {
-                          const currentPlayerQuality =
-                            event.target.getPlaybackQuality?.();
-                          // Nếu không phải chất lượng cao nhất, ép lại
-                          if (
-                            currentPlayerQuality !== bestAvailableQuality &&
-                            bestAvailableQuality !== "auto"
-                          ) {
-                            console.log(
-                              `Phát hiện giảm chất lượng, đang ép lại: ${bestAvailableQuality}`
-                            );
-                            event.target.setPlaybackQuality(
-                              bestAvailableQuality
-                            );
-                          }
-                        } catch (error) {
-                          console.error("Lỗi khi kiểm tra chất lượng:", error);
+                        // Chỉ seek time khi có video chính
+                        if (videoState.nowPlayingData) {
+                          const currentServerTime =
+                            videoState.nowPlayingData.timestamp +
+                            (Date.now() - videoState.nowPlayingData.timestamp) /
+                              1000;
+                          const targetTime =
+                            videoState.nowPlayingData.currentTime +
+                            (currentServerTime -
+                              videoState.nowPlayingData.timestamp);
+                          event.target.seekTo(targetTime, true);
                         }
-                      }, 3000); // Kiểm tra mỗi 3 giây
 
-                      // Dừng kiểm tra sau 60 giây để tránh tốn tài nguyên
-                      setTimeout(() => {
-                        clearInterval(qualityCheckInterval);
-                      }, 60000);
-                    }, 2000); // Tăng từ 800ms lên 2000ms
+                        // Bắt đầu phát video
+                        event.target.playVideo();
+                        setVideoState((prev) => ({
+                          ...prev,
+                          isBuffering: false,
+                          isPaused: false,
+                        }));
+                        setIsChangingSong(false);
+
+                        // Đặt lại volume
+                        event.target.setVolume(volume);
+
+                        // Thông báo video sẵn sàng
+                        socket?.emit("video_ready", {
+                          roomId: roomId,
+                          videoId: videoState.nowPlayingData?.video_id,
+                        });
+                      } else {
+                        // Nếu chưa đạt được chất lượng mong muốn, thử lại
+                        console.log(
+                          "Chất lượng chưa đạt yêu cầu, tiếp tục đợi"
+                        );
+                        setTimeout(checkBufferState, 500);
+                      }
+                    }, 500);
 
                     return;
                   }
