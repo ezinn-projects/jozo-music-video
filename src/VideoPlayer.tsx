@@ -907,12 +907,6 @@ const YouTubePlayer = () => {
                     event.target.setPlaybackQuality(bestAvailableQuality);
                   }
 
-                  // Tăng ngưỡng buffer lên ít nhất 60% và kiểm tra chất lượng trước khi phát
-                  const targetQuality =
-                    bestAvailableQuality === "hd1080" ? "hd1080" : "hd720";
-                  const hasHighQuality =
-                    currentQuality === "hd1080" || currentQuality === "hd720";
-
                   // Đảm bảo video ở chất lượng cao nhất trước khi bắt đầu phát
                   if (bufferPercent >= 60 && isBuffering) {
                     // Thử áp dụng chất lượng cao một lần nữa trước khi bắt đầu phát
