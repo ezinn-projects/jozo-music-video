@@ -813,10 +813,12 @@ const YouTubePlayer = () => {
           loop: !videoState.nowPlayingData ? 1 : 0,
           playlist: !videoState.nowPlayingData ? FALLBACK_VIDEO_ID : undefined,
           quality: "hd1080",
+          hd: 1,
           hl: "vi",
           cc_load_policy: 0,
           color: "white",
           origin: ORIGIN,
+          widget_referrer: window.location.href,
         },
         events: {
           onReady: (event: any) => {
@@ -826,18 +828,138 @@ const YouTubePlayer = () => {
             );
 
             try {
-              event.target.playVideo();
+              // Thêm cờ để theo dõi trạng thái buffer
+              let isBuffering = true;
+              setVideoState((prev) => ({ ...prev, isBuffering: true }));
+              setIsChangingSong(true);
 
-              // Chỉ seek time khi có video chính
-              if (videoState.nowPlayingData) {
-                const currentServerTime =
-                  videoState.nowPlayingData.timestamp +
-                  (Date.now() - videoState.nowPlayingData.timestamp) / 1000;
-                const targetTime =
-                  videoState.nowPlayingData.currentTime +
-                  (currentServerTime - videoState.nowPlayingData.timestamp);
-                event.target.seekTo(targetTime, true);
-              }
+              // Kiểm tra khi video đã buffer đủ (onVideoData thường được gọi khi đã có metadata)
+              const checkBufferState = () => {
+                try {
+                  // Lấy thông tin về video đã buffer
+                  const bufferPercent = event.target.getVideoLoadedFraction
+                    ? event.target.getVideoLoadedFraction() * 100
+                    : 0;
+
+                  console.log("Buffer loaded:", bufferPercent.toFixed(2) + "%");
+
+                  // Lấy chất lượng hiện tại
+                  const currentQuality = event.target.getPlaybackQuality
+                    ? event.target.getPlaybackQuality()
+                    : "";
+                  console.log("Current quality:", currentQuality);
+
+                  // Lấy danh sách chất lượng có sẵn
+                  const availableQualities = event.target
+                    .getAvailableQualityLevels
+                    ? event.target.getAvailableQualityLevels()
+                    : [];
+                  console.log("Available qualities:", availableQualities);
+
+                  // Thứ tự chất lượng ưu tiên - chỉ bao gồm chất lượng cao
+                  const qualityPriority = ["hd1080", "hd720"];
+
+                  // Tìm chất lượng cao nhất có sẵn
+                  let bestAvailableQuality = "auto";
+                  for (const quality of qualityPriority) {
+                    if (availableQualities.includes(quality)) {
+                      bestAvailableQuality = quality;
+                      break;
+                    }
+                  }
+
+                  if (
+                    bestAvailableQuality !== "auto" &&
+                    bestAvailableQuality !== currentQuality
+                  ) {
+                    console.log(
+                      `Đặt chất lượng tốt nhất hiện có: ${bestAvailableQuality}`
+                    );
+                    event.target.setPlaybackQuality(bestAvailableQuality);
+                  }
+
+                  // Tăng ngưỡng buffer lên ít nhất 25% để đảm bảo video đủ nét
+                  if (bufferPercent >= 25 && isBuffering) {
+                    isBuffering = false;
+                    console.log(
+                      "Buffer đủ để phát, bắt đầu phát video với chất lượng tốt..."
+                    );
+
+                    // Cố gắng buộc chất lượng cao trước khi phát
+                    if (bestAvailableQuality !== "auto") {
+                      event.target.setPlaybackQuality(bestAvailableQuality);
+                      // Đợi thêm một chút để chất lượng được áp dụng
+                      setTimeout(() => {
+                        if (videoState.nowPlayingData) {
+                          const currentServerTime =
+                            videoState.nowPlayingData.timestamp +
+                            (Date.now() - videoState.nowPlayingData.timestamp) /
+                              1000;
+                          const targetTime =
+                            videoState.nowPlayingData.currentTime +
+                            (currentServerTime -
+                              videoState.nowPlayingData.timestamp);
+                          event.target.seekTo(targetTime, true);
+                        }
+
+                        event.target.playVideo();
+                        setVideoState((prev) => ({
+                          ...prev,
+                          isBuffering: false,
+                          isPaused: false,
+                        }));
+                        setIsChangingSong(false);
+
+                        event.target.setVolume(volume);
+
+                        socket?.emit("video_ready", {
+                          roomId: roomId,
+                          videoId: videoState.nowPlayingData?.video_id,
+                        });
+                      }, 500);
+                    } else {
+                      // Chỉ seek time khi có video chính
+                      if (videoState.nowPlayingData) {
+                        const currentServerTime =
+                          videoState.nowPlayingData.timestamp +
+                          (Date.now() - videoState.nowPlayingData.timestamp) /
+                            1000;
+                        const targetTime =
+                          videoState.nowPlayingData.currentTime +
+                          (currentServerTime -
+                            videoState.nowPlayingData.timestamp);
+                        event.target.seekTo(targetTime, true);
+                      }
+
+                      event.target.playVideo();
+                      setVideoState((prev) => ({
+                        ...prev,
+                        isBuffering: false,
+                        isPaused: false,
+                      }));
+                      setIsChangingSong(false);
+                    }
+                  }
+                } catch (error) {
+                  console.error("Lỗi khi kiểm tra buffer:", error);
+                  // Nếu có lỗi, vẫn cố gắng phát
+                  event.target.playVideo();
+                  setVideoState((prev) => ({
+                    ...prev,
+                    isBuffering: false,
+                    isPaused: false,
+                  }));
+                  setIsChangingSong(false);
+                }
+
+                // Nếu chưa buffer đủ, tiếp tục kiểm tra
+                if (isBuffering) {
+                  setTimeout(checkBufferState, 250); // Tăng thời gian giữa các lần kiểm tra
+                }
+              };
+
+              // Bắt đầu kiểm tra buffer
+              checkBufferState();
             } catch (e) {
               console.error("Lỗi khi phát video:", e);
               event.target.mute();
@@ -857,6 +979,13 @@ const YouTubePlayer = () => {
                   console.error("Lỗi khi seek video:", seekError);
                 }
               }
+
+              setVideoState((prev) => ({
+                ...prev,
+                isBuffering: false,
+                isPaused: false,
+              }));
+              setIsChangingSong(false);
             }
 
             event.target.setVolume(volume);
@@ -873,7 +1002,25 @@ const YouTubePlayer = () => {
 
             // Ép chất lượng mỗi khi video đang chạy để đảm bảo không bị YouTube override
             if (event.data === YT.PLAYING && videoState.nowPlayingData) {
-              event.target.setPlaybackQuality("hd1080");
+              // Thử áp dụng nhiều mức chất lượng
+              const tryQualityLevels = ["hd1080", "hd720", "large"];
+
+              // Lấy danh sách chất lượng có sẵn
+              const availableQualities =
+                event.target.getAvailableQualityLevels?.() || [];
+              console.log("Available qualities:", availableQualities);
+
+              // Tìm chất lượng tốt nhất có sẵn
+              let bestQuality = "auto";
+              for (const quality of tryQualityLevels) {
+                if (availableQualities.includes(quality)) {
+                  bestQuality = quality;
+                  break;
+                }
+              }
+
+              console.log("Đang đặt chất lượng tốt nhất:", bestQuality);
+              event.target.setPlaybackQuality(bestQuality);
             }
 
             // Thêm xử lý khi video kết thúc
@@ -891,13 +1038,33 @@ const YouTubePlayer = () => {
           },
           onPlaybackQualityChange: (event: any) => {
             console.log("Quality changed:", event.data);
-            // Ép chất lượng về HD 1080 nếu khác
-            if (
-              event.data !== "hd1080" &&
-              videoState.nowPlayingData &&
-              event.target.setPlaybackQuality
-            ) {
-              event.target.setPlaybackQuality("hd1080");
+
+            // Lấy danh sách chất lượng có sẵn
+            const availableQualities =
+              event.target.getAvailableQualityLevels?.() || [];
+            console.log(
+              "Available qualities on quality change:",
+              availableQualities
+            );
+
+            // Thứ tự chất lượng ưu tiên
+            const qualityPriority = ["hd1080", "hd720", "large", "medium"];
+
+            // Nếu chất lượng hiện tại không phải là chất lượng cao nhất có sẵn
+            if (videoState.nowPlayingData && event.target.setPlaybackQuality) {
+              // Tìm chất lượng cao nhất có sẵn
+              for (const quality of qualityPriority) {
+                if (availableQualities.includes(quality)) {
+                  // Nếu chất lượng hiện tại thấp hơn chất lượng tốt nhất có sẵn
+                  if (event.data !== quality) {
+                    console.log(
+                      `Nâng cấp chất lượng từ ${event.data} lên ${quality}`
+                    );
+                    event.target.setPlaybackQuality(quality);
+                  }
+                  break;
+                }
+              }
             }
           },
           onError: async (event: any) => {
@@ -1545,6 +1712,16 @@ const YouTubePlayer = () => {
           <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-white">
             <img src={logo} alt="logo" className="w-full h-full" />
           </div>
+        </div>
+      )}
+
+      {/* Hiển thị buffer indicator */}
+      {videoState.isBuffering && !isChangingSong && (
+        <div className="absolute bottom-6 right-6 z-40 flex items-center bg-black/70 px-3 py-1.5 rounded-lg">
+          <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+          <span className="text-white text-sm">
+            Đang cải thiện chất lượng...
+          </span>
         </div>
       )}
 
