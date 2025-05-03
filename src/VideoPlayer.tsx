@@ -621,7 +621,7 @@ const YouTubePlayer = () => {
         },
         currentVideoId: data.video_id,
         isBuffering: true,
-        isPaused: false,
+        isPaused: true, // Đặt isPaused = true để chặn phát tự động
       }));
 
       // Reset backup states
@@ -634,10 +634,18 @@ const YouTubePlayer = () => {
       });
 
       if (playerRef.current?.loadVideoById) {
-        playerRef.current.loadVideoById({
+        // Thay vì sử dụng loadVideoById (tự động phát), sử dụng cueVideoById (chỉ tải không phát)
+        playerRef.current.cueVideoById({
           videoId: data.video_id,
           startSeconds: 0, // Bắt đầu từ đầu
         });
+
+        // Đảm bảo Player ở trạng thái pause
+        setTimeout(() => {
+          if (playerRef.current?.pauseVideo) {
+            playerRef.current.pauseVideo();
+          }
+        }, 100);
       }
     };
 
@@ -833,6 +841,11 @@ const YouTubePlayer = () => {
               setVideoState((prev) => ({ ...prev, isBuffering: true }));
               setIsChangingSong(true);
 
+              // Vô hiệu hóa autoplay mặc định của YouTube
+              if (event.target.pauseVideo) {
+                event.target.pauseVideo();
+              }
+
               // Kiểm tra khi video đã buffer đủ (onVideoData thường được gọi khi đã có metadata)
               const checkBufferState = () => {
                 try {
@@ -888,15 +901,20 @@ const YouTubePlayer = () => {
                     event.target.setPlaybackQuality(bestAvailableQuality);
                   }
 
-                  // Tăng ngưỡng buffer lên ít nhất 30% để đảm bảo video đủ nét
-                  if (bufferPercent >= 30 && isBuffering) {
-                    // Thử áp dụng chất lượng cao trước khi bắt đầu phát
+                  // Tăng ngưỡng buffer lên ít nhất 60% và kiểm tra chất lượng trước khi phát
+                  const targetQuality =
+                    bestAvailableQuality === "hd1080" ? "hd1080" : "hd720";
+                  const hasHighQuality =
+                    currentQuality === "hd1080" || currentQuality === "hd720";
+
+                  if (bufferPercent >= 60 && isBuffering && hasHighQuality) {
+                    // Thử áp dụng chất lượng cao lần cuối trước khi bắt đầu phát
                     if (bestAvailableQuality !== "auto") {
                       // Thử áp dụng lần cuối trước khi phát
                       event.target.setPlaybackQuality(bestAvailableQuality);
                     }
 
-                    // Đợi thêm một chút để chất lượng cải thiện nếu có thể
+                    // Đợi thêm thời gian để đảm bảo chất lượng được áp dụng
                     setTimeout(() => {
                       isBuffering = false;
                       console.log(
@@ -933,18 +951,45 @@ const YouTubePlayer = () => {
                         roomId: roomId,
                         videoId: videoState.nowPlayingData?.video_id,
                       });
-                    }, 800); // Đợi thêm 800ms để đảm bảo chất lượng được áp dụng
+
+                      // Thêm kiểm tra liên tục chất lượng sau khi bắt đầu phát
+                      const qualityCheckInterval = setInterval(() => {
+                        try {
+                          const currentPlayerQuality =
+                            event.target.getPlaybackQuality?.();
+                          // Nếu không phải chất lượng cao nhất, ép lại
+                          if (
+                            currentPlayerQuality !== bestAvailableQuality &&
+                            bestAvailableQuality !== "auto"
+                          ) {
+                            console.log(
+                              `Phát hiện giảm chất lượng, đang ép lại: ${bestAvailableQuality}`
+                            );
+                            event.target.setPlaybackQuality(
+                              bestAvailableQuality
+                            );
+                          }
+                        } catch (error) {
+                          console.error("Lỗi khi kiểm tra chất lượng:", error);
+                        }
+                      }, 3000); // Kiểm tra mỗi 3 giây
+
+                      // Dừng kiểm tra sau 60 giây để tránh tốn tài nguyên
+                      setTimeout(() => {
+                        clearInterval(qualityCheckInterval);
+                      }, 60000);
+                    }, 2000); // Tăng từ 800ms lên 2000ms
 
                     return;
                   }
 
                   // Hiển thị % buffer trong console cho dễ theo dõi
-                  const remainingPercent = 30 - bufferPercent;
+                  const remainingPercent = 60 - bufferPercent;
                   if (remainingPercent > 0) {
                     console.log(
                       `Còn cần thêm ${remainingPercent.toFixed(
                         2
-                      )}% buffer để đạt 30%`
+                      )}% buffer để đạt 60%`
                     );
                   }
 
@@ -954,16 +999,14 @@ const YouTubePlayer = () => {
                   }
                 } catch (error) {
                   console.error("Lỗi khi kiểm tra buffer:", error);
-                  // Nếu có lỗi, vẫn cố gắng phát
-                  event.target.playVideo();
+                  // Hiển thị lỗi nhưng KHÔNG phát video ngay lập tức
                   setVideoState((prev) => ({
                     ...prev,
                     isBuffering: false,
-                    isPaused: false,
+                    isPaused: true, // Đặt thành pause thay vì play
                   }));
                   setIsChangingSong(false);
                 }
-
                 // Nếu chưa buffer đủ, tiếp tục kiểm tra
                 if (isBuffering) {
                   setTimeout(checkBufferState, 250); // Tăng thời gian giữa các lần kiểm tra
@@ -1005,8 +1048,10 @@ const YouTubePlayer = () => {
               roomId: roomId,
               videoId: videoState.nowPlayingData?.video_id,
             });
-            setVideoState((prev) => ({ ...prev, isPaused: false }));
-            setIsChangingSong(false);
+
+            // KHÔNG tự động phát khi player sẵn sàng, để checkBufferState xử lý
+            // setVideoState((prev) => ({ ...prev, isPaused: false }));
+            // setIsChangingSong(false);
           },
           onStateChange: (event: any) => {
             const YT = (window as any).YT.PlayerState;
