@@ -56,7 +56,9 @@ function useBackupVideo(
   volume: number,
   socket: typeof Socket | null,
   onVideoReady: () => void,
-  onVideoEnd: () => void
+  onVideoEnd: () => void,
+  isChangingSong: boolean,
+  playerRef: React.RefObject<any>
 ) {
   const backupVideoRef = useRef<HTMLVideoElement>(null);
   const [backupState, setBackupState] = useState<BackupState>({
@@ -75,6 +77,22 @@ function useBackupVideo(
     if (backupState.isLoadingBackup || backupState.backupUrl) {
       console.log("Đang loading hoặc đã có backup URL");
       return;
+    }
+
+    // Thêm kiểm tra xem video có đang trong quá trình chuyển bài không
+    if (isChangingSong) {
+      console.log("Đang trong quá trình chuyển bài, đợi thêm...");
+      // Đợi thêm 3 giây để xem video có load được không
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+
+      // Kiểm tra lại trạng thái video
+      if (
+        playerRef.current?.getPlayerState?.() ===
+        (window as any).YT.PlayerState.PLAYING
+      ) {
+        console.log("Video đã load thành công sau khi đợi");
+        return;
+      }
     }
 
     try {
@@ -121,7 +139,14 @@ function useBackupVideo(
         youtubeError: true,
       }));
     }
-  }, [videoId, roomId, backupState.isLoadingBackup, backupState.backupUrl]);
+  }, [
+    videoId,
+    roomId,
+    backupState.isLoadingBackup,
+    backupState.backupUrl,
+    isChangingSong,
+    playerRef,
+  ]);
 
   // Cập nhật volume cho video backup
   useEffect(() => {
@@ -428,7 +453,9 @@ const YouTubePlayer = () => {
         roomId,
         videoId: videoState.nowPlayingData.video_id,
       });
-    }
+    },
+    isChangingSong,
+    playerRef
   );
 
   useEffect(() => {
@@ -463,8 +490,8 @@ const YouTubePlayer = () => {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
-      transports: ["websocket"], // ← chỉ websocket, không polling
-      path: "/socket.io", // (mặc định)
+      transports: ["websocket"],
+      path: "/socket.io",
     });
     setSocket(socketInstance);
 
@@ -477,84 +504,13 @@ const YouTubePlayer = () => {
         connectionAttempts: 0,
       }));
 
-      // Khi kết nối thành công, yêu cầu thông tin về bài hát hiện tại nếu có
+      // Khi kết nối thành công, yêu cầu thông tin về bài hát hiện tại
       socketInstance.emit("request_current_song", { roomId });
     });
 
-    socketInstance.on("disconnect", () => {
-      console.log("Socket disconnected");
-      setSocketStatus((prev) => ({
-        ...prev,
-        connected: false,
-      }));
-    });
-
-    socketInstance.on("reconnect_attempt", (attemptNumber: number) => {
-      console.log(`Socket reconnection attempt #${attemptNumber}`);
-      setSocketStatus((prev) => ({
-        ...prev,
-        connectionAttempts: attemptNumber,
-      }));
-    });
-
-    socketInstance.on("reconnect", () => {
-      console.log("Socket reconnected");
-      setSocketStatus((prev) => ({
-        ...prev,
-        connected: true,
-      }));
-
-      // Khi tái kết nối thành công, yêu cầu thông tin về bài hát hiện tại nếu có
-      socketInstance.emit("request_current_song", { roomId });
-    });
-
-    socketInstance.on("reconnect_error", (error: Error) => {
-      console.error("Socket reconnection error:", error);
-    });
-
-    socketInstance.on("reconnect_failed", () => {
-      console.error("Socket reconnection failed after all attempts");
-
-      // Tự động kết nối lại sau 10 giây nếu tất cả các lần thử đều thất bại
-      setTimeout(() => {
-        if (!socketInstance.connected) {
-          socketInstance.connect();
-        }
-      }, 10000);
-    });
-
-    // Lắng nghe sự kiện tắt video từ BE
-    socketInstance.on("videos_turned_off", (data: VideoTurnedOffData) => {
-      console.log("Videos have been turned off by backend", data);
-      setIsVideoOff(true);
-    });
-
-    // Lắng nghe sự kiện bật video từ BE
-    socketInstance.on("videos_turned_on", () => {
-      console.log("Videos have been turned on by backend");
-      setIsVideoOff(false);
-    });
-
-    // Thiết lập heartbeat để kiểm tra kết nối
-    const heartbeatInterval = setInterval(() => {
-      if (socketInstance.connected) {
-        socketInstance.emit("heartbeat", { roomId });
-      }
-    }, 30000); // 30 giây gửi một lần heartbeat
-
-    return () => {
-      clearInterval(heartbeatInterval);
-      socketInstance.disconnect();
-    };
-  }, [roomId]);
-
-  // Thêm response cho current_song nếu kết nối bị gián đoạn
-  useEffect(() => {
-    if (!socket) return;
-
-    // Xử lý nhận thông tin bài hát hiện tại sau khi yêu cầu
+    // Thêm xử lý cho current_song
     const handleCurrentSong = (data: PlaySongEvent) => {
-      console.log("Received current song after reconnect:", data);
+      console.log("Received current song after reload:", data);
 
       if (!data || !data.video_id) return;
 
@@ -592,7 +548,7 @@ const YouTubePlayer = () => {
 
           playerRef.current.loadVideoById({
             videoId: data.video_id,
-            startSeconds: startTime, // Bắt đầu từ thời điểm hiện tại của bài hát
+            startSeconds: startTime,
           });
 
           // Đảm bảo thiết lập volume
@@ -603,12 +559,75 @@ const YouTubePlayer = () => {
       }
     };
 
-    socket.on("current_song", handleCurrentSong);
+    socketInstance.on("current_song", handleCurrentSong);
+
+    socketInstance.on("disconnect", () => {
+      console.log("Socket disconnected");
+      setSocketStatus((prev) => ({
+        ...prev,
+        connected: false,
+      }));
+    });
+
+    socketInstance.on("reconnect_attempt", (attemptNumber: number) => {
+      console.log(`Socket reconnection attempt #${attemptNumber}`);
+      setSocketStatus((prev) => ({
+        ...prev,
+        connectionAttempts: attemptNumber,
+      }));
+    });
+
+    socketInstance.on("reconnect", () => {
+      console.log("Socket reconnected");
+      setSocketStatus((prev) => ({
+        ...prev,
+        connected: true,
+      }));
+
+      // Khi tái kết nối thành công, yêu cầu thông tin về bài hát hiện tại
+      socketInstance.emit("request_current_song", { roomId });
+    });
+
+    socketInstance.on("reconnect_error", (error: Error) => {
+      console.error("Socket reconnection error:", error);
+    });
+
+    socketInstance.on("reconnect_failed", () => {
+      console.error("Socket reconnection failed after all attempts");
+
+      // Tự động kết nối lại sau 10 giây nếu tất cả các lần thử đều thất bại
+      setTimeout(() => {
+        if (!socketInstance.connected) {
+          socketInstance.connect();
+        }
+      }, 10000);
+    });
+
+    // Lắng nghe sự kiện tắt video từ BE
+    socketInstance.on("videos_turned_off", (data: VideoTurnedOffData) => {
+      console.log("Videos have been turned off by backend", data);
+      setIsVideoOff(true);
+    });
+
+    // Lắng nghe sự kiện bật video từ BE
+    socketInstance.on("videos_turned_on", () => {
+      console.log("Videos have been turned on by backend");
+      setIsVideoOff(false);
+    });
+
+    // Thiết lập heartbeat để kiểm tra kết nối
+    const heartbeatInterval = setInterval(() => {
+      if (socketInstance.connected) {
+        socketInstance.emit("heartbeat", { roomId });
+      }
+    }, 30000);
 
     return () => {
-      socket.off("current_song", handleCurrentSong);
+      clearInterval(heartbeatInterval);
+      socketInstance.off("current_song", handleCurrentSong);
+      socketInstance.disconnect();
     };
-  }, [socket, videoState.nowPlayingData?.video_id]);
+  }, [roomId]);
 
   useEffect(() => {
     if (!socket) return;
@@ -618,18 +637,7 @@ const YouTubePlayer = () => {
       console.log("Received play song:", data);
       setIsChangingSong(true);
 
-      setVideoState((prev) => ({
-        ...prev,
-        nowPlayingData: {
-          ...data,
-          currentTime: 0, // Reset currentTime khi nhận bài mới
-        },
-        currentVideoId: data.video_id,
-        isBuffering: true,
-        isPaused: false, // Đặt isPaused = false để tự động phát
-      }));
-
-      // Reset backup states
+      // Reset backup states first
       setBackupState({
         backupUrl: "",
         isLoadingBackup: false,
@@ -638,42 +646,114 @@ const YouTubePlayer = () => {
         youtubeError: false,
       });
 
+      // Update video state
+      setVideoState((prev) => ({
+        ...prev,
+        nowPlayingData: {
+          ...data,
+          currentTime: 0,
+        },
+        currentVideoId: data.video_id,
+        isBuffering: true,
+        isPaused: true,
+      }));
+
       if (playerRef.current?.loadVideoById) {
         try {
-          // Đảm bảo unmute trước khi load video mới
-          if (playerRef.current.unMute) {
-            playerRef.current.unMute();
-            console.log("Unmuting before loading new video");
-          }
+          // Tối ưu: Gộp các thao tác với player vào một block
+          const setupPlayer = () => {
+            if (!playerRef.current) return;
 
-          // Thiết lập âm lượng trước khi load video
-          if (playerRef.current.setVolume) {
-            playerRef.current.setVolume(volume);
-            console.log("Setting volume before loading new video:", volume);
-          }
+            try {
+              // Unmute và set volume trong một lần
+              playerRef.current.unMute();
+              playerRef.current.setVolume(volume);
+              console.log("Player setup completed");
+            } catch (e) {
+              console.error("Error during player setup:", e);
+            }
+          };
 
-          // Sử dụng loadVideoById thay vì cueVideoById để tự động phát
+          // Gọi setup một lần
+          setupPlayer();
+
+          // Load video
           playerRef.current.loadVideoById({
             videoId: data.video_id,
-            startSeconds: 0, // Bắt đầu từ đầu
+            startSeconds: 0,
           });
 
-          // Kiểm tra lại âm lượng sau khi load video
-          setTimeout(() => {
+          // Tối ưu: Sử dụng một biến để theo dõi số lần kiểm tra
+          let checkCount = 0;
+          const MAX_CHECKS = 5; // Giới hạn số lần kiểm tra
+
+          // Tối ưu: Sử dụng requestAnimationFrame thay vì setInterval
+          let animationFrameId: number;
+          const checkAudio = () => {
+            if (!playerRef.current || checkCount >= MAX_CHECKS) {
+              cancelAnimationFrame(animationFrameId);
+              return;
+            }
+
             try {
-              if (playerRef.current.unMute) {
+              // Kiểm tra mute và volume
+              if (playerRef.current.isMuted?.()) {
                 playerRef.current.unMute();
               }
-              if (playerRef.current.setVolume) {
+
+              const currentVolume = playerRef.current.getVolume?.();
+              if (currentVolume !== volume) {
                 playerRef.current.setVolume(volume);
-                console.log("Re-applying volume after loading video:", volume);
               }
+
+              checkCount++;
+              animationFrameId = requestAnimationFrame(checkAudio);
             } catch (e) {
-              console.error("Error setting volume after loading video:", e);
+              console.error("Error during audio check:", e);
+              cancelAnimationFrame(animationFrameId);
             }
-          }, 1000);
+          };
+
+          // Bắt đầu kiểm tra âm thanh
+          animationFrameId = requestAnimationFrame(checkAudio);
+
+          // Tối ưu: Sử dụng Promise để xử lý timeout
+          const loadPromise = new Promise<void>((resolve) => {
+            const loadTimeout = setTimeout(() => {
+              cancelAnimationFrame(animationFrameId);
+
+              if (
+                playerRef.current?.getPlayerState?.() ===
+                (window as any).YT.PlayerState.PLAYING
+              ) {
+                console.log("New video loaded and playing successfully");
+                setIsChangingSong(false);
+              } else if (
+                playerRef.current?.getPlayerState?.() ===
+                (window as any).YT.PlayerState.ENDED
+              ) {
+                console.log("Video ended immediately, likely an error");
+                handleYouTubeError();
+              }
+
+              resolve();
+            }, 5000);
+
+            // Cleanup
+            return () => {
+              clearTimeout(loadTimeout);
+              cancelAnimationFrame(animationFrameId);
+            };
+          });
+
+          // Xử lý kết quả
+          loadPromise.catch((error) => {
+            console.error("Error during video load:", error);
+            handleYouTubeError();
+          });
         } catch (loadError) {
           console.error("Error loading new video:", loadError);
+          handleYouTubeError();
         }
       }
     };
@@ -818,6 +898,16 @@ const YouTubePlayer = () => {
               } else {
                 console.log("Volume is correct during PLAYING state:", volume);
               }
+
+              // Kiểm tra xem đây có phải là video mới được next không
+              const currentVideoId = playerRef.current.getVideoData().video_id;
+              if (
+                isChangingSong &&
+                currentVideoId === videoState.currentVideoId
+              ) {
+                console.log("New video started playing successfully");
+                setIsChangingSong(false);
+              }
             } catch (e) {
               console.error(
                 "Error checking mute/volume during PLAYING state:",
@@ -858,9 +948,25 @@ const YouTubePlayer = () => {
             currentTime: playerRef.current.getCurrentTime(),
           });
           break;
+        case YT.ENDED:
+          // Kiểm tra xem đây có phải là video mới được next không
+          if (isChangingSong) {
+            console.log("Video ended during song transition, likely an error");
+            handleYouTubeError();
+          } else {
+            handleVideoEnd();
+          }
+          break;
       }
     },
-    [socket, roomId, videoState.nowPlayingData, volume]
+    [
+      socket,
+      roomId,
+      videoState.nowPlayingData,
+      volume,
+      isChangingSong,
+      videoState.currentVideoId,
+    ]
   );
 
   useEffect(() => {
@@ -1036,7 +1142,7 @@ const YouTubePlayer = () => {
                   }
 
                   // Đảm bảo video ở chất lượng cao nhất trước khi bắt đầu phát
-                  if (bufferPercent >= 60 && isBuffering) {
+                  if (bufferPercent >= 80 && isBuffering) {
                     // Thử áp dụng chất lượng cao một lần nữa trước khi bắt đầu phát
                     if (bestAvailableQuality !== "auto") {
                       console.log(
@@ -1046,7 +1152,7 @@ const YouTubePlayer = () => {
                       event.target.setPlaybackQuality(bestAvailableQuality);
                     }
 
-                    // Đợi thêm 500ms để đảm bảo chất lượng được áp dụng
+                    // Đợi thêm 2000ms để đảm bảo chất lượng được áp dụng
                     setTimeout(() => {
                       // Kiểm tra chất lượng hiện tại sau khi đã đặt
                       const finalQuality = event.target.getPlaybackQuality
@@ -1061,68 +1167,72 @@ const YouTubePlayer = () => {
                       if (
                         finalQuality === "hd1080" ||
                         finalQuality === "hd720" ||
-                        bufferPercent >= 90
+                        bufferPercent >= 95
                       ) {
-                        isBuffering = false;
-                        console.log(
-                          "Buffer đủ và chất lượng tốt, bắt đầu phát video..."
-                        );
+                        // Thêm delay 2-3 giây trước khi phát để đảm bảo buffer đủ
+                        setTimeout(() => {
+                          isBuffering = false;
+                          console.log(
+                            "Buffer đủ và chất lượng tốt, bắt đầu phát video..."
+                          );
 
-                        // Chỉ seek time khi có video chính
-                        if (videoState.nowPlayingData) {
-                          const currentServerTime =
-                            videoState.nowPlayingData.timestamp +
-                            (Date.now() - videoState.nowPlayingData.timestamp) /
-                              1000;
-                          const targetTime =
-                            videoState.nowPlayingData.currentTime +
-                            (currentServerTime -
-                              videoState.nowPlayingData.timestamp);
-                          event.target.seekTo(targetTime, true);
-                        }
+                          // Chỉ seek time khi có video chính
+                          if (videoState.nowPlayingData) {
+                            const currentServerTime =
+                              videoState.nowPlayingData.timestamp +
+                              (Date.now() -
+                                videoState.nowPlayingData.timestamp) /
+                                1000;
+                            const targetTime =
+                              videoState.nowPlayingData.currentTime +
+                              (currentServerTime -
+                                videoState.nowPlayingData.timestamp);
+                            event.target.seekTo(targetTime, true);
+                          }
 
-                        // Bắt đầu phát video
-                        event.target.playVideo();
-                        setVideoState((prev) => ({
-                          ...prev,
-                          isBuffering: false,
-                          isPaused: false,
-                        }));
-                        setIsChangingSong(false);
+                          // Bắt đầu phát video
+                          event.target.playVideo();
+                          setVideoState((prev) => ({
+                            ...prev,
+                            isBuffering: false,
+                            isPaused: false,
+                          }));
+                          setIsChangingSong(false);
 
-                        // Đặt lại volume
-                        event.target.setVolume(volume);
+                          // Đặt lại volume
+                          event.target.setVolume(volume);
 
-                        // Thông báo video sẵn sàng
-                        socket?.emit("video_ready", {
-                          roomId: roomId,
-                          videoId: videoState.nowPlayingData?.video_id,
-                        });
+                          // Thông báo video sẵn sàng
+                          socket?.emit("video_ready", {
+                            roomId: roomId,
+                            videoId: videoState.nowPlayingData?.video_id,
+                          });
+                        }, 2000 + Math.random() * 1000); // Delay 2-3 giây ngẫu nhiên
                       } else {
                         // Nếu chưa đạt được chất lượng mong muốn, thử lại
                         console.log(
                           "Chất lượng chưa đạt yêu cầu, tiếp tục đợi"
                         );
-                        setTimeout(checkBufferState, 500);
+                        setTimeout(checkBufferState, 1000);
                       }
-                    }, 500);
+                    }, 2000); // Tăng từ 1000ms lên 2000ms
 
                     return;
                   }
 
                   // Hiển thị % buffer trong console cho dễ theo dõi
-                  const remainingPercent = 60 - bufferPercent;
+                  const remainingPercent = 80 - bufferPercent;
                   if (remainingPercent > 0) {
                     console.log(
                       `Còn cần thêm ${remainingPercent.toFixed(
                         2
-                      )}% buffer để đạt 60%`
+                      )}% buffer để đạt 80%`
                     );
                   }
 
                   // Nếu chưa buffer đủ, tiếp tục kiểm tra
                   if (isBuffering) {
-                    setTimeout(checkBufferState, 250); // Kiểm tra mỗi 250ms
+                    setTimeout(checkBufferState, 500);
                   }
                 } catch (error) {
                   console.error("Lỗi khi kiểm tra buffer:", error);
@@ -1136,7 +1246,7 @@ const YouTubePlayer = () => {
                 }
                 // Nếu chưa buffer đủ, tiếp tục kiểm tra
                 if (isBuffering) {
-                  setTimeout(checkBufferState, 250); // Tăng thời gian giữa các lần kiểm tra
+                  setTimeout(checkBufferState, 500);
                 }
               };
 
@@ -1594,10 +1704,10 @@ const YouTubePlayer = () => {
       // Hiển thị khi bắt đầu
       setShowPoweredBy(true);
 
-      // Ẩn sau 6 giây
+      // Ẩn sau 4 giây
       const hideTimer = setTimeout(() => {
         setShowPoweredBy(false);
-      }, 6000);
+      }, 4000);
 
       // Hiển thị lại giữa bài
       const midwayTimer = setTimeout(() => {
@@ -2000,31 +2110,33 @@ const YouTubePlayer = () => {
       ></div>
 
       {/* Hiển thị màn hình lỗi YouTube khi không có backup */}
-      {backupState.youtubeError && !backupState.backupUrl && (
-        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-[25]">
-          <div className="text-center p-4 rounded-md bg-black/40 max-w-[90%] w-auto">
-            <img
-              src={logo}
-              alt="logo"
-              className="w-20 h-20 mx-auto mb-4 animate-pulse"
-            />
-            <p className="text-white text-xl font-bold mb-2">
-              Video không khả dụng
-            </p>
-            <p className="text-white/70 text-base mb-3">
-              Đang thử tải nguồn dự phòng...
-            </p>
-            {backupState.isLoadingBackup && (
-              <div className="w-8 h-8 border-t-3 border-pink-500 rounded-full animate-spin mx-auto mt-2"></div>
-            )}
-            {backupState.backupError && (
-              <p className="text-red-400 mt-2 text-sm">
-                Không thể tải nguồn dự phòng. Vui lòng thử lại sau.
+      {backupState.youtubeError &&
+        !backupState.backupUrl &&
+        !backupState.isLoadingBackup && (
+          <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-[25]">
+            <div className="text-center p-4 rounded-md bg-black/40 max-w-[90%] w-auto">
+              <img
+                src={logo}
+                alt="logo"
+                className="w-20 h-20 mx-auto mb-4 animate-pulse"
+              />
+              <p className="text-white text-xl font-bold mb-2">
+                Video không khả dụng
               </p>
-            )}
+              <p className="text-white/70 text-base mb-3">
+                Đang thử tải nguồn dự phòng...
+              </p>
+              {backupState.isLoadingBackup && (
+                <div className="w-8 h-8 border-t-3 border-pink-500 rounded-full animate-spin mx-auto mt-2"></div>
+              )}
+              {backupState.backupError && (
+                <p className="text-red-400 mt-2 text-sm">
+                  Không thể tải nguồn dự phòng. Vui lòng thử lại sau.
+                </p>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Loading indicator */}
       {backupState.isLoadingBackup && (

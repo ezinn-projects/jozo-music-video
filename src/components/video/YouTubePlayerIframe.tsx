@@ -65,6 +65,23 @@ const YouTubePlayerIframe: FC<YouTubePlayerIframeProps> = ({
           typeof player.setPlaybackQuality === "function";
 
         console.log("YouTube player successfully initialized with methods");
+
+        // Vô hiệu hóa phụ đề
+        try {
+          // Tắt phụ đề bằng JavaScript API
+          if (player && typeof player.unloadModule === "function") {
+            player.unloadModule("captions"); // Tắt module phụ đề nếu có thể
+          }
+
+          // Phương pháp thay thế nếu unloadModule không hoạt động
+          if (player && typeof player.setOption === "function") {
+            player.setOption("captions", "track", {});
+            player.setOption("captions", "reload", false);
+            player.setOption("captions", "track", { languageCode: "" });
+          }
+        } catch (e) {
+          console.error("Error disabling captions:", e);
+        }
       } catch (methodError) {
         console.error("Error verifying YouTube player methods:", methodError);
         hasValidMethods = false;
@@ -272,6 +289,7 @@ const YouTubePlayerIframe: FC<YouTubePlayerIframeProps> = ({
           quality: "hd1080",
           hl: "vi",
           cc_load_policy: 0,
+          cc_lang_pref: "none", // Không ưu tiên ngôn ngữ phụ đề nào
           color: "white",
           origin: ORIGIN,
         };
@@ -437,6 +455,7 @@ const YouTubePlayerIframe: FC<YouTubePlayerIframeProps> = ({
       "showinfo=0",
       "hl=vi",
       "cc_load_policy=0",
+      "cc_lang_pref=none", // Thêm tham số này để không có ngôn ngữ phụ đề được ưu tiên
       "color=white",
     ];
 

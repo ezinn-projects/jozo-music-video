@@ -56,14 +56,36 @@ const YouTubePlayerIframe: React.FC<YouTubePlayerIframeProps> = ({
             playsinline: 1,
             rel: 0,
             autohide: 1,
+            cc_load_policy: 0,
+            cc_lang_pref: "none",
+            hl: "vi",
           },
           events: {
             onReady: (event: any) => {
               if (playerRef.current !== player) {
                 playerRef.current = player;
               }
-              // Make sure to call onReady at this point so we trigger setIsChangingSong(false)
               console.log("YouTube player ready - should hide loading");
+              try {
+                if (
+                  event.target &&
+                  typeof event.target.unloadModule === "function"
+                ) {
+                  event.target.unloadModule("captions");
+                }
+                if (
+                  event.target &&
+                  typeof event.target.setOption === "function"
+                ) {
+                  event.target.setOption("captions", "track", {});
+                  event.target.setOption("captions", "reload", false);
+                  event.target.setOption("captions", "track", {
+                    languageCode: "",
+                  });
+                }
+              } catch (e) {
+                console.error("Error disabling captions:", e);
+              }
               onReady(event);
             },
             onStateChange,
@@ -78,7 +100,6 @@ const YouTubePlayerIframe: React.FC<YouTubePlayerIframeProps> = ({
       }
     }
 
-    // Update video ID when it changes
     const updateVideoId = () => {
       const actualVideoId = isFallback ? fallbackVideoId : videoId;
       if (playerRef.current && actualVideoId) {
@@ -86,11 +107,32 @@ const YouTubePlayerIframe: React.FC<YouTubePlayerIframeProps> = ({
           if (playerRef.current.getVideoData) {
             const currentVideoId = playerRef.current.getVideoData().video_id;
             if (currentVideoId !== actualVideoId) {
-              playerRef.current.loadVideoById(actualVideoId);
+              playerRef.current.loadVideoById({
+                videoId: actualVideoId,
+                startSeconds: 0,
+                suggestedQuality: "hd1080",
+              });
+              try {
+                if (playerRef.current.setOption) {
+                  playerRef.current.setOption("captions", "track", {});
+                  playerRef.current.setOption("captions", "reload", false);
+                  playerRef.current.setOption("captions", "track", {
+                    languageCode: "",
+                  });
+                }
+              } catch (e) {
+                console.error(
+                  "Error disabling captions after video change:",
+                  e
+                );
+              }
             }
           } else {
-            // If getVideoData not available yet, just load the video
-            playerRef.current.loadVideoById(actualVideoId);
+            playerRef.current.loadVideoById({
+              videoId: actualVideoId,
+              startSeconds: 0,
+              suggestedQuality: "hd1080",
+            });
           }
         } catch (e) {
           console.error("Error updating video ID:", e);
