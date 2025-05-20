@@ -22,45 +22,45 @@ const TrendingSongsList: React.FC<TrendingSongsListProps> = ({
   const schoolSongs = songs.filter((song) => song.category === "school");
 
   return (
-    <div className="w-full max-w-4xl px-2">
-      <div className="grid grid-cols-2 gap-2">
+    <div className="w-full h-full">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 h-full">
         {/* Summer Songs Box */}
-        <div className="bg-black/40 backdrop-blur-sm rounded-lg p-2 border border-white/10">
+        <div className="col-span-2 bg-black/40 backdrop-blur-sm rounded-lg p-2 border border-white/10">
           <div className="flex items-center gap-1.5 mb-2">
             <div className="w-6 h-6 flex items-center justify-center bg-gradient-to-r from-yellow-500 to-orange-500 rounded">
               <span className="text-sm">🌞</span>
             </div>
-            <h2 className="text-base font-bold text-white">Mùa Hè</h2>
+            <h2 className="text-sm font-bold text-white">Mùa Hè</h2>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="grid grid-cols-2 gap-1.5">
             {summerSongs.map((song, index) => (
               <div
                 key={index}
                 className="bg-white/5 rounded p-1.5 border border-white/5"
               >
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-1.5">
                   {/* Song Number */}
-                  <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-gradient-to-br from-yellow-500/20 to-orange-500/20 rounded text-sm font-bold text-white/80">
+                  <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center bg-gradient-to-br from-yellow-500/20 to-orange-500/20 rounded text-xs font-bold text-white/80">
                     {index + 1}
                   </div>
 
                   {/* Song Info */}
                   <div className="flex-grow min-w-0">
-                    <h3 className="text-sm font-bold text-white leading-tight">
+                    <h3 className="text-xs font-bold text-white leading-tight">
                       {song.title}
                     </h3>
-                    <p className="text-white/70 text-xs leading-tight">
+                    <p className="text-white/70 text-[10px] leading-tight">
                       {song.artist}
                     </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gradient-to-r from-yellow-500/20 to-orange-500/20 text-white/90">
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <span className="px-1 py-0.5 rounded-full text-[9px] font-medium bg-gradient-to-r from-yellow-500/20 to-orange-500/20 text-white/90">
                         {song.genre}
                       </span>
-                      <span className="text-white/60 text-[10px] flex items-center">
+                      <span className="text-white/60 text-[9px] flex items-center">
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
-                          className="h-2.5 w-2.5 mr-0.5"
+                          className="h-2 w-2 mr-0.5"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -81,7 +81,7 @@ const TrendingSongsList: React.FC<TrendingSongsListProps> = ({
                         {song.views}
                       </span>
                     </div>
-                    <p className="text-white/50 text-[10px] mt-0.5 italic leading-tight">
+                    <p className="text-white/50 text-[9px] mt-0.5 italic leading-tight line-clamp-1">
                       {song.description}
                     </p>
                   </div>
@@ -92,42 +92,42 @@ const TrendingSongsList: React.FC<TrendingSongsListProps> = ({
         </div>
 
         {/* School Songs Box */}
-        <div className="bg-black/40 backdrop-blur-sm rounded-lg p-2 border border-white/10">
+        <div className="col-span-2 bg-black/40 backdrop-blur-sm rounded-lg p-2 border border-white/10">
           <div className="flex items-center gap-1.5 mb-2">
             <div className="w-6 h-6 flex items-center justify-center bg-gradient-to-r from-blue-500 to-indigo-500 rounded">
               <span className="text-sm">🎓</span>
             </div>
-            <h2 className="text-base font-bold text-white">Cuối Năm Học</h2>
+            <h2 className="text-sm font-bold text-white">Cuối Năm Học</h2>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="grid grid-cols-2 gap-1.5">
             {schoolSongs.map((song, index) => (
               <div
                 key={index}
                 className="bg-white/5 rounded p-1.5 border border-white/5"
               >
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-1.5">
                   {/* Song Number */}
-                  <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-gradient-to-br from-blue-500/20 to-indigo-500/20 rounded text-sm font-bold text-white/80">
+                  <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center bg-gradient-to-br from-blue-500/20 to-indigo-500/20 rounded text-xs font-bold text-white/80">
                     {index + 1}
                   </div>
 
                   {/* Song Info */}
                   <div className="flex-grow min-w-0">
-                    <h3 className="text-sm font-bold text-white leading-tight">
+                    <h3 className="text-xs font-bold text-white leading-tight">
                       {song.title}
                     </h3>
-                    <p className="text-white/70 text-xs leading-tight">
+                    <p className="text-white/70 text-[10px] leading-tight">
                       {song.artist}
                     </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gradient-to-r from-blue-500/20 to-indigo-500/20 text-white/90">
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <span className="px-1 py-0.5 rounded-full text-[9px] font-medium bg-gradient-to-r from-blue-500/20 to-indigo-500/20 text-white/90">
                         {song.genre}
                       </span>
-                      <span className="text-white/60 text-[10px] flex items-center">
+                      <span className="text-white/60 text-[9px] flex items-center">
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
-                          className="h-2.5 w-2.5 mr-0.5"
+                          className="h-2 w-2 mr-0.5"
                           fill="none"
                           viewBox="0 0 24 24"
                           stroke="currentColor"
@@ -148,7 +148,7 @@ const TrendingSongsList: React.FC<TrendingSongsListProps> = ({
                         {song.views}
                       </span>
                     </div>
-                    <p className="text-white/50 text-[10px] mt-0.5 italic leading-tight">
+                    <p className="text-white/50 text-[9px] mt-0.5 italic leading-tight line-clamp-1">
                       {song.description}
                     </p>
                   </div>
