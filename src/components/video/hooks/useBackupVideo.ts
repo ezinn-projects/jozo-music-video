@@ -182,11 +182,7 @@ export function useBackupVideo({
         }
       }, 2000);
     }
-  }, [
-    backupState.backupUrl,
-    backupState.isLoadingBackup,
-    backupState.youtubeError,
-  ]);
+  }, []);
 
   // Update volume for backup video
   useEffect(() => {

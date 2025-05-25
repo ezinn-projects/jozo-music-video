@@ -271,7 +271,7 @@ const VideoPlayer = () => {
           break;
       }
     },
-    [socket, roomId, videoState.nowPlayingData, handleVideoEnd, volume]
+    [socket, roomId, handleVideoEnd, volume]
   );
 
   // Rotate cute messages
@@ -375,7 +375,7 @@ const VideoPlayer = () => {
     if (backupVideoRef.current) {
       backupVideoRef.current.volume = volume / 100;
     }
-  }, [volume, backupVideoRef.current ? backupState.backupUrl : null]);
+  }, [volume]);
 
   // Handle "Powered by Jozo" display
   useEffect(() => {
@@ -559,7 +559,7 @@ const VideoPlayer = () => {
       setVideoState((prev) => ({ ...prev, isPaused: false }));
       setIsChangingSong(false);
     },
-    [videoState.nowPlayingData, volume, socket, roomId, setBackupState]
+    [volume, socket, roomId]
   );
 
   // useEffect to monitor and log quality issues
@@ -660,12 +660,7 @@ const VideoPlayer = () => {
         }
       }
     },
-    [
-      videoState.nowPlayingData,
-      backupState.youtubeError,
-      backupState.isLoadingBackup,
-      backupState.backupUrl,
-    ]
+    []
   );
 
   // Hàm này gọi trực tiếp API khi việc dùng hook không có kết quả

@@ -77,8 +77,8 @@ export function useVideoEvents({
 
       // Check if song is different from current
       if (
-        !videoState.nowPlayingData?.video_id ||
-        videoState.nowPlayingData.video_id !== data.video_id
+        !videoStateRef.current.nowPlayingData?.video_id ||
+        videoStateRef.current.nowPlayingData.video_id !== data.video_id
       ) {
         setIsChangingSong(true);
 
@@ -127,7 +127,7 @@ export function useVideoEvents({
     return () => {
       socket.off("current_song", handleCurrentSong);
     };
-  }, [socket, videoState.nowPlayingData?.video_id]);
+  }, [socket]);
 
   // Handle play song and video events
   useEffect(() => {
