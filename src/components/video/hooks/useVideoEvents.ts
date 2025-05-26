@@ -37,6 +37,7 @@ interface UseVideoEventsProps {
   handleBackupVideoEnd: () => void; // Giữ lại vì có thể cần trong tương lai
   backupState: BackupState;
   setBackupState: React.Dispatch<React.SetStateAction<BackupState>>;
+  onSongEnded?: () => void; // Thêm callback tùy chọn khi bài hát kết thúc
 }
 
 export function useVideoEvents({
@@ -50,6 +51,7 @@ export function useVideoEvents({
   handleBackupVideoEnd, // Giữ lại để không phá vỡ API của hook
   backupState,
   setBackupState,
+  onSongEnded,
 }: UseVideoEventsProps) {
   // Create refs to store the latest values without triggering re-renders
   const videoStateRef = useRef(videoState);
@@ -267,15 +269,50 @@ export function useVideoEvents({
     };
   }, [socket, backupState.backupUrl]);
 
-  // Handle video end
+  // Video end handler
   const handleVideoEnd = useCallback(() => {
-    if (!socket || !videoState.nowPlayingData) return;
+    const socket = socketRef.current;
+    const videoState = videoStateRef.current;
+    const roomId = roomIdRef.current;
+    const backupState = backupStateRef.current;
 
-    socket.emit("song_ended", {
-      roomId,
-      videoId: videoState.nowPlayingData.video_id,
-    });
-  }, [socket, videoState.nowPlayingData, roomId]);
+    if (!videoState.nowPlayingData || !socket) {
+      console.log("Cannot handle video end: missing data or socket");
+      return;
+    }
+
+    try {
+      console.log("Video ended: sending song_ended event");
+
+      if (
+        backupState.backupUrl &&
+        backupState.backupVideoReady &&
+        backupVideoRef.current
+      ) {
+        // For backup video, handle separately to avoid double-events
+        // Logic is in the component
+        handleBackupVideoEnd();
+      } else {
+        // For YouTube player
+        socket.emit("song_ended", {
+          roomId,
+          videoId: videoState.nowPlayingData.video_id,
+        });
+      }
+
+      // Gọi callback nếu được cung cấp
+      if (onSongEnded) {
+        onSongEnded();
+      }
+    } catch (e) {
+      console.error("Error handling video end:", e);
+    }
+  }, [
+    backupVideoRef,
+    playerRef,
+    handleBackupVideoEnd,
+    onSongEnded, // Thêm dependency
+  ]);
 
   // Handle time updates
   const handleTimeUpdate = useCallback(() => {

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, memo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { logo } from "../../assets";
 import { RecordingStudio } from "../../RecordingStudio";
@@ -23,6 +23,7 @@ import {
 import WelcomeScreen from "./WelcomeScreen";
 import YouTubePlayerIframe from "./YouTubePlayerIframe";
 
+// Tối ưu interface bằng cách chỉ giữ các methods cần thiết
 interface YouTubePlayerEvent {
   data: number;
   target: {
@@ -34,10 +35,13 @@ interface YouTubePlayerEvent {
     getVideoData: () => { video_id: string };
     getCurrentTime: () => number;
     getDuration: () => number;
-    setPlaybackQualityRange?: (min: string, max: string) => void;
+    pauseVideo?: () => void;
     unMute?: () => void;
     isMuted?: () => boolean;
     getVolume?: () => number;
+    getPlayerState?: () => number;
+    getAvailableQualityLevels?: () => string[];
+    setPlaybackQualityRange?: (min: string, max: string) => void;
   };
 }
 
@@ -69,7 +73,7 @@ const VideoPlayer = () => {
     isDevMode: import.meta.env.DEV || import.meta.env.MODE === "development",
     availableQualities: [] as string[],
     qualityChangeCount: 0,
-    showControls: true,
+    showControls: false,
   });
 
   // UI states
@@ -100,6 +104,42 @@ const VideoPlayer = () => {
     },
   });
 
+  // Thêm ref để theo dõi trạng thái video
+  const currentVideoRef = useRef<string | null>(null);
+
+  // Khi videoState.nowPlayingData thay đổi, lưu vào ref
+  useEffect(() => {
+    if (videoState.nowPlayingData?.video_id) {
+      currentVideoRef.current = videoState.nowPlayingData.video_id;
+      if (debugInfo.isDevMode) {
+        console.log("Video data updated:", videoState.nowPlayingData.video_id);
+      }
+    }
+  }, [videoState.nowPlayingData, debugInfo.isDevMode]);
+
+  // Thêm effect để log khi videoState thay đổi đáng kể
+  useEffect(() => {
+    const currentVideo = currentVideoRef.current;
+
+    if (debugInfo.isDevMode) {
+      if (!videoState.nowPlayingData && currentVideo) {
+        console.log(
+          "ANOMALY DETECTED: Video data was lost but currentVideoRef still exists:",
+          currentVideo
+        );
+      }
+
+      if (videoState.nowPlayingData?.video_id) {
+        console.log(
+          "Video state updated with valid data:",
+          videoState.nowPlayingData.video_id
+        );
+      } else if (!videoState.nowPlayingData) {
+        console.log("Video state nowPlayingData is null");
+      }
+    }
+  }, [videoState.nowPlayingData, debugInfo.isDevMode]);
+
   // Get current videoId safely from multiple sources
   const getCurrentVideoId = useCallback(() => {
     // Ưu tiên từ nowPlayingData
@@ -110,6 +150,11 @@ const VideoPlayer = () => {
     // Thử từ currentVideoId
     if (videoState.currentVideoId) {
       return videoState.currentVideoId;
+    }
+
+    // Thử từ currentVideoRef
+    if (currentVideoRef.current) {
+      return currentVideoRef.current;
     }
 
     // Thử lấy từ player
@@ -130,6 +175,7 @@ const VideoPlayer = () => {
     videoState.nowPlayingData?.video_id,
     videoState.currentVideoId,
     playerRef,
+    currentVideoRef,
   ]);
 
   // Handle backup video when YouTube fails
@@ -202,6 +248,13 @@ const VideoPlayer = () => {
     handleBackupVideoEnd,
     backupState,
     setBackupState,
+    onSongEnded: () => {
+      // Reset currentVideoRef khi bài hát thực sự kết thúc
+      currentVideoRef.current = null;
+      if (debugInfo.isDevMode) {
+        console.log("Song ended, resetting currentVideoRef");
+      }
+    },
   });
 
   // Handle YouTube player state changes
@@ -210,17 +263,25 @@ const VideoPlayer = () => {
       if (!playerRef.current || !socket) return;
 
       const YT = (window as any).YT.PlayerState;
-      console.log("YouTube State Change:", event.data);
 
-      // Update debug state
-      setDebugInfo((prev) => ({ ...prev, playerState: event.data }));
+      // Chỉ log trong dev mode
+      if (debugInfo.isDevMode) {
+        console.log("YouTube State Change:", event.data);
+      }
+
+      // Update debug state chỉ trong dev mode
+      if (debugInfo.isDevMode) {
+        setDebugInfo((prev) => ({ ...prev, playerState: event.data }));
+      }
 
       switch (event.data) {
         case YT.BUFFERING:
           setVideoState((prev) => ({ ...prev, isBuffering: true }));
           break;
         case YT.PLAYING:
-          console.log("Video is now playing");
+          if (debugInfo.isDevMode) {
+            console.log("Video is now playing");
+          }
           // Ẩn loading indicator ngay khi video bắt đầu phát
           setIsChangingSong(false);
           setVideoState((prev) => ({
@@ -233,12 +294,16 @@ const VideoPlayer = () => {
           try {
             const isMuted = playerRef.current.isMuted?.() || false;
             if (isMuted) {
-              console.log("Player muted while playing, force unmuting");
+              if (debugInfo.isDevMode) {
+                console.log("Player muted while playing, force unmuting");
+              }
               playerRef.current.unMute?.();
               playerRef.current.setVolume?.(volume);
             }
           } catch (e) {
-            console.error("Error checking mute state during play:", e);
+            if (debugInfo.isDevMode) {
+              console.error("Error checking mute state during play:", e);
+            }
           }
 
           socket.emit("video_event", {
@@ -257,7 +322,9 @@ const VideoPlayer = () => {
           }
           break;
         case YT.PAUSED:
-          console.log("Video is now paused");
+          if (debugInfo.isDevMode) {
+            console.log("Video is now paused");
+          }
           setVideoState((prev) => ({ ...prev, isPaused: true }));
           socket.emit("video_event", {
             roomId,
@@ -271,7 +338,7 @@ const VideoPlayer = () => {
           break;
       }
     },
-    [socket, roomId, handleVideoEnd, volume]
+    [socket, roomId, handleVideoEnd, volume, debugInfo.isDevMode]
   );
 
   // Rotate cute messages
@@ -314,38 +381,47 @@ const VideoPlayer = () => {
     };
   }, []);
 
-  // Reset changing song state after timeout
+  // Reset changing song state after timeout - tối ưu hóa
   useEffect(() => {
-    if (isChangingSong) {
-      const timeout = setTimeout(() => {
+    if (!isChangingSong) return;
+
+    // Một timeout duy nhất để ẩn loading indicator
+    const timeout = setTimeout(() => {
+      if (debugInfo.isDevMode) {
         console.log("Timeout - force hiding loading indicator after 5 seconds");
-        setIsChangingSong(false);
-      }, 5000); // Giảm thời gian xuống còn 5 giây thay vì 10 giây
+      }
+      setIsChangingSong(false);
+    }, 5000);
 
-      return () => clearTimeout(timeout);
-    }
-  }, [isChangingSong]);
+    return () => clearTimeout(timeout);
+  }, [isChangingSong, debugInfo.isDevMode]);
 
-  // Thêm effect mới để đảm bảo khi video không đang buffer, loading bị tắt
+  // Kết hợp 2 effect liên quan đến loading indicator thành 1
   useEffect(() => {
     if (
       !videoState.isBuffering &&
       isChangingSong &&
       videoState.nowPlayingData
     ) {
-      console.log("Video no longer buffering - hiding loading indicator");
+      if (debugInfo.isDevMode) {
+        console.log("Video no longer buffering - hiding loading indicator");
+      }
       setIsChangingSong(false);
     }
-  }, [videoState.isBuffering, isChangingSong, videoState.nowPlayingData]);
+  }, [
+    videoState.isBuffering,
+    isChangingSong,
+    videoState.nowPlayingData,
+    debugInfo.isDevMode,
+  ]);
 
-  // Handle volume changes from server
+  // Handle volume changes from server - tối ưu hóa
   useEffect(() => {
     if (!socket) return;
 
     const handleVolumeChange = (newVolume: number) => {
+      // Gộp các thay đổi state vào một callback duy nhất nếu có thể
       setVolume(newVolume);
-
-      // Show toast
       setVolumeToast({ show: true, value: newVolume });
 
       // Apply volume to YouTube player
@@ -357,10 +433,13 @@ const VideoPlayer = () => {
         backupVideoRef.current.volume = newVolume / 100;
       }
 
-      // Auto-hide toast after 2 seconds
-      setTimeout(() => {
+      // Sử dụng một timeout duy nhất
+      const hideToastTimeout = setTimeout(() => {
         setVolumeToast((prev) => ({ ...prev, show: false }));
       }, 2000);
+
+      // Cleanup function để tránh memory leaks
+      return () => clearTimeout(hideToastTimeout);
     };
 
     socket.on("volumeChange", handleVolumeChange);
@@ -405,29 +484,52 @@ const VideoPlayer = () => {
     }
   }, [videoState.nowPlayingData?.video_id]);
 
-  // Handle double tap for fullscreen toggle
+  // Handle double tap for fullscreen toggle - tối ưu hóa để tránh memory leaks
   const handleDoubleTap = useCallback(() => {
     const now = Date.now();
+    // 300ms threshold for double tap
     if (now - lastTap < 300) {
-      // 300ms threshold for double tap
-      if (document.fullscreenElement) {
-        document
-          .exitFullscreen()
-          .catch((e) => console.error("Error exiting fullscreen:", e));
-      } else {
-        containerRef.current
-          ?.requestFullscreen()
-          .catch((e) => console.error("Error entering fullscreen:", e));
+      try {
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        } else if (containerRef.current) {
+          containerRef.current.requestFullscreen();
+        }
+      } catch (e) {
+        // Tránh ghi log nếu không cần thiết
+        if (debugInfo.isDevMode) {
+          console.error("Fullscreen error:", e);
+        }
       }
     }
     setLastTap(now);
-  }, [lastTap, containerRef]);
+  }, [lastTap, containerRef, debugInfo.isDevMode]);
 
-  // Handle YouTube player ready event
+  // Thêm một effect đặc biệt để theo dõi currentVideoId
+  useEffect(() => {
+    // Khi videoState.currentVideoId được cập nhật, cũng cập nhật currentVideoRef
+    if (
+      videoState.currentVideoId &&
+      videoState.currentVideoId !== FALLBACK_VIDEO_ID
+    ) {
+      currentVideoRef.current = videoState.currentVideoId;
+      if (debugInfo.isDevMode) {
+        console.log(
+          "Updated currentVideoRef from currentVideoId:",
+          videoState.currentVideoId
+        );
+      }
+    }
+  }, [videoState.currentVideoId, debugInfo.isDevMode]);
+
+  // Điều chỉnh cách xử lý YouTubePlayerReady để sử dụng currentVideoRef khi cần
   const handleYouTubePlayerReady = useCallback(
     (event: YouTubePlayerEvent) => {
       // Force quality when player is ready
-      console.log("=== FORCING MAX QUALITY ON YOUTUBE PLAYER ===");
+      if (debugInfo.isDevMode) {
+        console.log("=== FORCING MAX QUALITY ON YOUTUBE PLAYER ===");
+      }
+
       try {
         // Đặt chất lượng cao nhất có thể
         event.target.setPlaybackQuality("hd1080");
@@ -437,72 +539,62 @@ const VideoPlayer = () => {
           event.target.setPlaybackQualityRange("hd1080", "hd1080");
         }
 
-        // Thêm một interval để liên tục kiểm tra chất lượng ngay khi player khởi động
-        const startupQualityInterval = setInterval(() => {
+        // Thay thế nhiều setTimeout bằng một cái duy nhất cho kiểm tra sau khi khởi động
+        setTimeout(() => {
           try {
+            // QUAN TRỌNG: Kiểm tra lại chất lượng
             if (event.target.setPlaybackQuality) {
               event.target.setPlaybackQuality("hd1080");
-              console.log("Startup interval: setting quality to hd1080");
             }
-          } catch {
-            // Ignore errors
-          }
-        }, 1000);
 
-        // Chỉ kiểm tra trong 10 giây đầu
-        setTimeout(() => {
-          clearInterval(startupQualityInterval);
-        }, 10000);
-
-        // Đặt chất lượng ngay khi player bắt đầu phát
-        setTimeout(() => {
-          try {
-            if (event.target.setPlaybackQuality) {
-              event.target.setPlaybackQuality("hd1080");
-              console.log("Delayed quality setting: hd1080");
-            }
-          } catch {
-            // Ignore errors
-          }
-        }, 2000);
-      } catch (e) {
-        console.error("Error setting initial HD quality:", e);
-      }
-
-      // Đảm bảo unmute và đặt volume trước khi bắt đầu phát
-      try {
-        // QUAN TRỌNG: Đảm bảo player không bị mute
-        event.target.unMute?.();
-        console.log("Explicitly unmuting player during ready event");
-
-        // Thiết lập volume
-        event.target.setVolume(volume);
-        console.log("Setting volume during ready event:", volume);
-
-        // Thêm kiểm tra bổ sung sau một chút thời gian
-        setTimeout(() => {
-          try {
             // Kiểm tra xem player có bị mute không
             const isMuted = event.target.isMuted?.() || false;
             if (isMuted) {
-              console.log("Player still muted after setup, force unmuting");
+              if (debugInfo.isDevMode) {
+                console.log("Player still muted after setup, force unmuting");
+              }
               event.target.unMute?.();
             }
 
             // Kiểm tra lại volume
             const currentVolume = event.target.getVolume?.() || 0;
             if (currentVolume !== volume) {
-              console.log(
-                `Volume incorrect: ${currentVolume}, setting to ${volume}`
-              );
+              if (debugInfo.isDevMode) {
+                console.log(
+                  `Volume incorrect: ${currentVolume}, setting to ${volume}`
+                );
+              }
               event.target.setVolume(volume);
             }
           } catch (e) {
-            console.error("Error during unmute validation:", e);
+            if (debugInfo.isDevMode) {
+              console.error("Error during post-setup validation:", e);
+            }
           }
-        }, 1000);
+        }, 2000);
       } catch (e) {
-        console.error("Error unmuting player:", e);
+        if (debugInfo.isDevMode) {
+          console.error("Error setting initial HD quality:", e);
+        }
+      }
+
+      // Đảm bảo unmute và đặt volume trước khi bắt đầu phát
+      try {
+        // QUAN TRỌNG: Đảm bảo player không bị mute
+        event.target.unMute?.();
+        if (debugInfo.isDevMode) {
+          console.log("Explicitly unmuting player during ready event");
+        }
+
+        // Thiết lập volume
+        event.target.setVolume(volume);
+        if (debugInfo.isDevMode) {
+          console.log("Setting volume during ready event:", volume);
+        }
+      } catch (e) {
+        if (debugInfo.isDevMode) {
+          console.error("Error unmuting player:", e);
+        }
       }
 
       try {
@@ -522,19 +614,15 @@ const VideoPlayer = () => {
           event.target.seekTo(targetTime, true);
         }
       } catch (e) {
-        console.error("Error playing video:", e);
-
-        // THAY ĐỔI: Không còn tự động mute nếu có lỗi phát video
-        // Thay vào đó, cố gắng phát video nhưng giữ unmute
-        try {
-          event.target.playVideo();
-        } catch (playError) {
-          console.error("Error during fallback play:", playError);
+        if (debugInfo.isDevMode) {
+          console.error("Error playing video:", e);
         }
 
-        // Still try to seek time if there's an active video
-        if (videoState.nowPlayingData) {
-          try {
+        try {
+          event.target.playVideo();
+
+          // Still try to seek time if there's an active video
+          if (videoState.nowPlayingData) {
             const currentServerTime =
               videoState.nowPlayingData.timestamp +
               (Date.now() - videoState.nowPlayingData.timestamp) / 1000;
@@ -542,50 +630,56 @@ const VideoPlayer = () => {
               videoState.nowPlayingData.currentTime +
               (currentServerTime - videoState.nowPlayingData.timestamp);
             event.target.seekTo(targetTime, true);
-          } catch (seekError) {
-            console.error("Error seeking video:", seekError);
+          }
+        } catch (combinedError) {
+          if (debugInfo.isDevMode) {
+            console.error("Error during fallback operations:", combinedError);
           }
         }
       }
 
-      // Đảm bảo thiết lập volume và unmute
-      event.target.unMute?.();
-      event.target.setVolume(volume);
-
       socket?.emit("video_ready", {
         roomId: roomId,
-        videoId: videoState.nowPlayingData?.video_id,
+        videoId: videoState.nowPlayingData?.video_id || currentVideoRef.current,
       });
+
+      // Đảm bảo không ở trạng thái paused nếu đang phát video
       setVideoState((prev) => ({ ...prev, isPaused: false }));
       setIsChangingSong(false);
     },
-    [volume, socket, roomId]
+    [
+      volume,
+      socket,
+      roomId,
+      videoState.nowPlayingData,
+      debugInfo.isDevMode,
+      currentVideoRef,
+    ]
   );
 
-  // useEffect to monitor and log quality issues
+  // useEffect to monitor and log quality issues - optimized
   useEffect(() => {
     // Chỉ chạy trong chế độ development và khi có thay đổi chất lượng
     if (!debugInfo.isDevMode || !debugInfo.quality) return;
 
-    // Ghi log chất lượng hiện tại
-    console.log(
-      `Current quality: ${debugInfo.quality} (changes: ${debugInfo.qualityChangeCount})`
-    );
+    // Ghi log chất lượng hiện tại chỉ khi thay đổi thực sự
+    if (debugInfo.qualityChangeCount <= 5) {
+      console.log(
+        `Current quality: ${debugInfo.quality} (changes: ${debugInfo.qualityChangeCount})`
+      );
+    }
 
     // Chỉ cố gắng buộc chất lượng khi thấy chất lượng thấp và chưa thực hiện quá nhiều lần
     if (
       debugInfo.quality &&
       debugInfo.quality !== "hd1080" &&
       playerRef.current?.setPlaybackQuality &&
-      debugInfo.qualityChangeCount < 10 // Giới hạn số lần thử
+      debugInfo.qualityChangeCount < 5 // Giảm giới hạn từ 10 xuống 5
     ) {
-      console.log(
-        "Debug monitor: Detected non-HD quality, forcing to HD 1080p"
-      );
       try {
         playerRef.current.setPlaybackQuality("hd1080");
       } catch {
-        console.error("Failed to enforce quality from debug monitor");
+        // Silent fail
       }
     }
   }, [debugInfo.quality, debugInfo.qualityChangeCount, debugInfo.isDevMode]);
@@ -593,7 +687,9 @@ const VideoPlayer = () => {
   // Handle YouTube playback quality change
   const handlePlaybackQualityChange = useCallback(
     (event: YouTubeQualityEvent) => {
-      console.log("Quality changed:", event.data);
+      if (debugInfo.isDevMode) {
+        console.log("Quality changed:", event.data);
+      }
 
       // Update debug info with more detail
       setDebugInfo((prev) => ({
@@ -611,77 +707,78 @@ const VideoPlayer = () => {
         !backupState.isLoadingBackup &&
         !backupState.backupUrl
       ) {
-        console.log("QUALITY CHANGED - FORCING BACK TO 1080p!");
+        if (debugInfo.isDevMode) {
+          console.log("QUALITY CHANGED - FORCING BACK TO 1080p!");
+        }
 
         // Set it immediately
         event.target.setPlaybackQuality("hd1080");
 
-        // And also after a short delay to make sure it sticks
+        // Use a single timeout instead of multiple
         setTimeout(() => {
           try {
             if (event.target && event.target.setPlaybackQuality) {
+              if (debugInfo.isDevMode) {
+                console.log("Delayed quality enforcement: HD 1080p");
+              }
               event.target.setPlaybackQuality("hd1080");
             }
           } catch {
             // Ignore errors
           }
-        }, 200);
+        }, 1000);
 
-        // Multiple attempts with increasing delays
-        [500, 1000, 2000].forEach((delay) => {
-          setTimeout(() => {
-            try {
-              if (event.target && event.target.setPlaybackQuality) {
-                console.log(
-                  `Attempting to enforce HD quality after ${delay}ms`
-                );
-                event.target.setPlaybackQuality("hd1080");
+        // Only modify iframe src if quality keeps failing (after several attempts)
+        if (debugInfo.qualityChangeCount > 3) {
+          try {
+            const iframe = document.querySelector(
+              "#youtube-player iframe"
+            ) as HTMLIFrameElement | null;
+            if (iframe) {
+              let src = iframe.src;
+              if (!src.includes("vq=hd1080") && !src.includes("hd=1")) {
+                src += (src.includes("?") ? "&" : "?") + "vq=hd1080&hd=1";
+                iframe.src = src;
               }
-            } catch {
-              // Ignore errors
             }
-          }, delay);
-        });
-
-        // Also try to modify the iframe src
-        try {
-          const iframe = document.querySelector(
-            "#youtube-player iframe"
-          ) as HTMLIFrameElement | null;
-          if (iframe) {
-            let src = iframe.src;
-            if (!src.includes("vq=hd1080") && !src.includes("hd=1")) {
-              src += (src.includes("?") ? "&" : "?") + "vq=hd1080&hd=1";
-              iframe.src = src;
+          } catch (error) {
+            if (debugInfo.isDevMode) {
+              console.error("Error updating iframe on quality change:", error);
             }
           }
-        } catch (error) {
-          console.error("Error updating iframe on quality change:", error);
         }
       }
     },
-    []
+    [debugInfo.qualityChangeCount, debugInfo.isDevMode]
   );
 
-  // Hàm này gọi trực tiếp API khi việc dùng hook không có kết quả
+  // Hàm này gọi trực tiếp API khi việc dùng hook không có kết quả - tối ưu để giảm RAM
   const directlyGetBackupUrl = useCallback(
     async (videoId: string, roomId: string) => {
       if (!videoId || !roomId) {
-        console.error("Missing videoId or roomId for direct API call");
+        if (debugInfo.isDevMode) {
+          console.error("Missing videoId or roomId for direct API call");
+        }
         return;
       }
 
-      console.log("===> EMERGENCY: Directly calling backup API <===");
+      if (debugInfo.isDevMode) {
+        console.log("===> EMERGENCY: Directly calling backup API <===");
+      }
 
       try {
         const baseUrl = import.meta.env.VITE_API_BASE_URL;
         if (!baseUrl) {
-          console.error("VITE_API_BASE_URL is not defined");
+          if (debugInfo.isDevMode) {
+            console.error("VITE_API_BASE_URL is not defined");
+          }
           return;
         }
 
         const backupApiUrl = `${baseUrl}/room-music/${roomId}/${videoId}`;
-        console.log("Direct API call to:", backupApiUrl);
+        if (debugInfo.isDevMode) {
+          console.log("Direct API call to:", backupApiUrl);
+        }
 
         // Thêm param ngăn cache
         const noCache = Date.now();
@@ -702,7 +799,9 @@ const VideoPlayer = () => {
         const data = await response.json();
 
         if (data?.result?.url) {
-          console.log("Got direct backup URL:", data.result.url);
+          if (debugInfo.isDevMode) {
+            console.log("Got direct backup URL:", data.result.url);
+          }
 
           // Cập nhật state với URL mới
           setBackupState((prev) => ({
@@ -717,11 +816,13 @@ const VideoPlayer = () => {
           throw new Error("No URL in response");
         }
       } catch (err) {
-        console.error("Error in direct API call:", err);
+        if (debugInfo.isDevMode) {
+          console.error("Error in direct API call:", err);
+        }
         return null;
       }
     },
-    [setBackupState]
+    [setBackupState, debugInfo.isDevMode]
   );
 
   // Use direct call to fetchBackupVideo when needed
@@ -819,7 +920,7 @@ const VideoPlayer = () => {
     backupState.backupUrl,
   ]);
 
-  // Use effect to check for iframe error conditions
+  // Use effect to check for iframe error conditions - optimized to reduce checks
   useEffect(() => {
     // Skip if no video playing or already in backup mode
     if (
@@ -859,11 +960,6 @@ const VideoPlayer = () => {
                 "YouTube player stuck in unstarted state, confirmed as error"
               );
               triggerBackupVideo();
-            } else {
-              // Nếu đang phát bình thường, không làm gì cả
-              console.log(
-                "YouTube player is playing normally, no backup needed"
-              );
             }
           }
         } catch (error) {
@@ -882,27 +978,6 @@ const VideoPlayer = () => {
     backupState.backupUrl,
     backupState.isLoadingBackup,
     triggerBackupVideo,
-  ]);
-
-  // Chỉ kiểm tra lỗi khi video thay đổi - KHÔNG kiểm tra liên tục
-  useEffect(() => {
-    // Bỏ qua nếu không có video hoặc đã ở chế độ backup
-    if (
-      !videoState.nowPlayingData?.video_id ||
-      backupState.backupUrl ||
-      backupState.isLoadingBackup ||
-      backupState.youtubeError
-    )
-      return;
-
-    return () => {
-      // Cleanup function - không cần làm gì
-    };
-  }, [
-    videoState.nowPlayingData?.video_id,
-    backupState.youtubeError,
-    backupState.backupUrl,
-    backupState.isLoadingBackup,
   ]);
 
   // Handle YouTube player errors
@@ -981,32 +1056,35 @@ const VideoPlayer = () => {
     }
   }, [backupState.backupUrl, backupState.backupVideoReady, playerRef]);
 
-  // CSS to handle YouTube iframe visibility
+  // CSS to handle YouTube iframe visibility - optimized to reduce style element creation/removal
   useEffect(() => {
+    // Chỉ tạo style element khi cần thiết
+    if (!(backupState.backupUrl && backupState.backupVideoReady)) {
+      return;
+    }
+
     // Tạo element style để thêm vào head
     const styleElement = document.createElement("style");
 
-    if (backupState.backupUrl && backupState.backupVideoReady) {
-      // Nếu đang hiển thị video dự phòng, thêm CSS để vô hiệu hóa hoàn toàn iframe
-      styleElement.innerHTML = `
-        #youtube-player iframe {
-          display: none !important;
-          visibility: hidden !important;
-          opacity: 0 !important;
-          pointer-events: none !important;
-          height: 0 !important;
-          width: 0 !important;
-          position: absolute !important;
-          top: -9999px !important;
-          left: -9999px !important;
-        }
-      `;
+    // Thêm CSS để vô hiệu hóa hoàn toàn iframe
+    styleElement.innerHTML = `
+      #youtube-player iframe {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        height: 0 !important;
+        width: 0 !important;
+        position: absolute !important;
+        top: -9999px !important;
+        left: -9999px !important;
+      }
+    `;
 
-      // Thêm vào head
-      document.head.appendChild(styleElement);
+    // Thêm vào head
+    document.head.appendChild(styleElement);
 
-      console.log("Added CSS to completely disable YouTube iframe");
-    }
+    console.log("Added CSS to completely disable YouTube iframe");
 
     return () => {
       // Xóa style element khi unmount hoặc trạng thái thay đổi
@@ -1109,60 +1187,74 @@ const VideoPlayer = () => {
     // Chỉ chạy khi có video đang phát
     if (!videoState.nowPlayingData?.video_id) return;
 
-    console.log(
-      "Setting up combined interval checks for video:",
-      videoState.nowPlayingData.video_id
-    );
+    // Chỉ log trong development mode
+    if (debugInfo.isDevMode) {
+      console.log(
+        "Setting up combined interval checks for video:",
+        videoState.nowPlayingData.video_id
+      );
+    }
 
     // Tạo một interval đa chức năng thực hiện nhiều kiểm tra
     const combinedInterval = setInterval(() => {
       if (!playerRef.current) return;
 
-      // 1. Kiểm tra và ép chất lượng HD
-      try {
-        playerRef.current.setPlaybackQuality?.("hd1080");
+      // 1. Kiểm tra và ép chất lượng HD - giảm tần suất kiểm tra
+      if (Math.random() < 0.3) {
+        // Chỉ chạy 30% thời gian
+        try {
+          playerRef.current.setPlaybackQuality?.("hd1080");
 
-        // Kiểm tra và log các chất lượng có sẵn (giới hạn tần suất cập nhật)
-        if (
-          playerRef.current.getAvailableQualityLevels &&
-          Math.random() < 0.3
-        ) {
-          // Chỉ 30% lần kiểm tra
-          const qualities = playerRef.current.getAvailableQualityLevels();
+          // Kiểm tra và log các chất lượng có sẵn (giới hạn tần suất cập nhật)
           if (
-            JSON.stringify(qualities) !==
-            JSON.stringify(debugInfo.availableQualities)
+            playerRef.current.getAvailableQualityLevels &&
+            Math.random() < 0.3 &&
+            debugInfo.isDevMode
           ) {
-            console.log("Available quality levels:", qualities);
-            setDebugInfo((prev) => ({
-              ...prev,
-              availableQualities: qualities,
-            }));
+            // Chỉ 30% lần kiểm tra
+            const qualities = playerRef.current.getAvailableQualityLevels();
+            if (
+              JSON.stringify(qualities) !==
+              JSON.stringify(debugInfo.availableQualities)
+            ) {
+              console.log("Available quality levels:", qualities);
+              setDebugInfo((prev) => ({
+                ...prev,
+                availableQualities: qualities,
+              }));
+            }
           }
+        } catch {
+          // Ignore quality errors
         }
-      } catch {
-        // Ignore quality errors
       }
 
-      // 2. Kiểm tra âm thanh và sửa nếu cần
-      try {
-        // Kiểm tra mute
-        const isMuted = playerRef.current.isMuted?.() || false;
-        if (isMuted) {
-          console.log("Combined check: Player is muted, unmuting");
-          playerRef.current.unMute?.();
-        }
+      // 2. Kiểm tra âm thanh và sửa nếu cần - giảm tần suất kiểm tra
+      if (Math.random() < 0.5) {
+        // Chỉ chạy 50% thời gian
+        try {
+          // Kiểm tra mute
+          const isMuted = playerRef.current.isMuted?.() || false;
+          if (isMuted) {
+            if (debugInfo.isDevMode) {
+              console.log("Combined check: Player is muted, unmuting");
+            }
+            playerRef.current.unMute?.();
+          }
 
-        // Kiểm tra volume
-        const currentVolume = playerRef.current.getVolume?.() || 0;
-        if (Math.abs(currentVolume - volume) > 5) {
-          console.log(
-            `Combined check: Volume incorrect ${currentVolume}, setting to ${volume}`
-          );
-          playerRef.current.setVolume?.(volume);
+          // Kiểm tra volume
+          const currentVolume = playerRef.current.getVolume?.() || 0;
+          if (Math.abs(currentVolume - volume) > 5) {
+            if (debugInfo.isDevMode) {
+              console.log(
+                `Combined check: Volume incorrect ${currentVolume}, setting to ${volume}`
+              );
+            }
+            playerRef.current.setVolume?.(volume);
+          }
+        } catch {
+          // Ignore audio errors
         }
-      } catch {
-        // Ignore audio errors
       }
 
       // 3. Kiểm tra video kết thúc hiển thị powered by (thay thế interval cũ)
@@ -1183,7 +1275,11 @@ const VideoPlayer = () => {
               !showPoweredBy &&
               !hasShownEndingRef.current
             ) {
-              console.log("Combined check: Showing powered by at end of song");
+              if (debugInfo.isDevMode) {
+                console.log(
+                  "Combined check: Showing powered by at end of song"
+                );
+              }
               hasShownEndingRef.current = true; // Đánh dấu đã hiển thị
               setShowPoweredBy(true);
             }
@@ -1192,16 +1288,135 @@ const VideoPlayer = () => {
       } catch {
         // Ignore errors
       }
-    }, 3000); // Kiểm tra mỗi 3 giây - đủ cho hầu hết các trường hợp
+    }, 5000); // Tăng từ 3 giây lên 5 giây để giảm số lần thực thi
 
     return () => {
-      console.log(
-        "Clearing combined interval for video:",
-        videoState.nowPlayingData?.video_id
-      );
+      if (debugInfo.isDevMode) {
+        console.log(
+          "Clearing combined interval for video:",
+          videoState.nowPlayingData?.video_id
+        );
+      }
       clearInterval(combinedInterval);
     };
-  }, [videoState.nowPlayingData?.video_id, volume, showPoweredBy]);
+  }, [
+    videoState.nowPlayingData?.video_id,
+    volume,
+    showPoweredBy,
+    debugInfo.isDevMode,
+  ]);
+
+  // Sửa lại logic để hiển thị backup screen khi video data bị mất
+  // nhưng vẫn đang trong quá trình phát
+  const BackupVideoMissingDataScreen = () => (
+    <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
+      <div className="text-white text-center">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-white mx-auto mb-4">
+          <img src={logo} alt="logo" className="w-full h-full" />
+        </div>
+        <p className="text-xl">Đang tải lại thông tin bài hát...</p>
+      </div>
+    </div>
+  );
+
+  // Thêm một effect để khôi phục trạng thái video khi bị mất
+  useEffect(() => {
+    // Nếu video data bị mất nhưng ref vẫn còn, yêu cầu server gửi lại thông tin bài hát
+    if (!videoState.nowPlayingData && currentVideoRef.current && socket) {
+      if (debugInfo.isDevMode) {
+        console.log("Requesting current song info due to data loss");
+      }
+
+      // Hiển thị loading
+      setIsChangingSong(true);
+
+      // Yêu cầu server gửi lại thông tin bài hát hiện tại
+      socket.emit("request_current_song", { roomId });
+
+      // Tự động giải quyết sau 5 giây nếu server không phản hồi
+      const recoveryTimeout = setTimeout(() => {
+        // Vẫn chưa có dữ liệu sau 5 giây
+        if (!videoState.nowPlayingData && currentVideoRef.current) {
+          if (debugInfo.isDevMode) {
+            console.log("Recovery timeout reached, clearing reference");
+          }
+          // Nếu server không phản hồi, xóa reference để hiển thị welcome screen
+          currentVideoRef.current = null;
+          setIsChangingSong(false);
+        }
+      }, 5000);
+
+      return () => clearTimeout(recoveryTimeout);
+    }
+  }, [videoState.nowPlayingData, socket, roomId, debugInfo.isDevMode]);
+
+  // Handle play song and video events
+  useEffect(() => {
+    if (!socket) return;
+
+    // Xử lý khi nhận bài hát mới từ server
+    const handlePlaySong = (data: any) => {
+      if (debugInfo.isDevMode) {
+        console.log("Received play_song event:", data);
+      }
+
+      // Cập nhật currentVideoRef khi có bài hát mới
+      if (data?.video_id) {
+        currentVideoRef.current = data.video_id;
+      }
+    };
+
+    // Lắng nghe sự kiện play_song
+    socket.on("play_song", handlePlaySong);
+
+    return () => {
+      socket.off("play_song", handlePlaySong);
+    };
+  }, [socket, debugInfo.isDevMode]);
+
+  // Thêm xử lý cho current_song
+  useEffect(() => {
+    if (!socket) return;
+
+    // Xử lý khi nhận thông tin bài hát hiện tại
+    const handleCurrentSong = (data: any) => {
+      if (debugInfo.isDevMode) {
+        console.log("Received current_song event:", data);
+      }
+
+      // Cập nhật currentVideoRef khi có thông tin bài hát hiện tại
+      if (data?.video_id) {
+        currentVideoRef.current = data.video_id;
+      }
+    };
+
+    // Lắng nghe sự kiện current_song
+    socket.on("current_song", handleCurrentSong);
+
+    return () => {
+      socket.off("current_song", handleCurrentSong);
+    };
+  }, [socket, debugInfo.isDevMode]);
+
+  // Xử lý khi danh sách phát bị xóa
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNowPlayingCleared = () => {
+      if (debugInfo.isDevMode) {
+        console.log("Received now_playing_cleared event");
+      }
+
+      // Reset currentVideoRef khi danh sách phát bị xóa
+      currentVideoRef.current = null;
+    };
+
+    socket.on("now_playing_cleared", handleNowPlayingCleared);
+
+    return () => {
+      socket.off("now_playing_cleared", handleNowPlayingCleared);
+    };
+  }, [socket, debugInfo.isDevMode]);
 
   // If videos are turned off, show RecordingStudio component
   if (isVideoOff) {
@@ -1292,83 +1507,27 @@ const VideoPlayer = () => {
         connectionAttempts={socketStatus.connectionAttempts}
       />
 
-      {/* Debug information in development mode */}
-      {debugInfo.isDevMode && (
+      {/* Debug information in development mode - Tối giản */}
+      {debugInfo.isDevMode && debugInfo.showControls && (
         <div className="absolute top-20 right-4 z-50 bg-black/70 text-white p-2 rounded-md text-xs font-mono">
           <div>
-            Quality:{" "}
-            <span
-              className={
-                debugInfo.quality === "hd1080"
-                  ? "text-green-400"
-                  : "text-red-400"
-              }
-            >
-              {debugInfo.quality || "unknown"}
-            </span>
+            Q:{debugInfo.quality === "hd1080" ? "HD" : debugInfo.quality}
+            {" | "}
+            P:{videoState.nowPlayingData?.video_id?.slice(-5) || "none"}
+            {" | "}
+            B:{backupState.backupUrl ? "Y" : "N"}
           </div>
-          <div>Changes: {debugInfo.qualityChangeCount}</div>
-          <div>State: {debugInfo.playerState}</div>
-          <div>Playing: {videoState.nowPlayingData?.video_id || "none"}</div>
-          <div>Backup: {backupState.backupUrl ? "yes" : "no"}</div>
-          <div>Error: {backupState.youtubeError ? "yes" : "no"}</div>
-
-          {/* Quality levels section */}
-          <div>
-            Available: {debugInfo?.availableQualities?.length || 0} options
-          </div>
-          {debugInfo?.availableQualities?.includes("hd1080") && (
-            <div className="text-green-400">HD 1080p available!</div>
-          )}
-
-          {/* Debug controls */}
-          <div className="mt-2 border-t border-gray-700 pt-1">
-            <button
-              className={`px-2 py-1 mr-1 text-[9px] rounded ${
-                debugInfo.showControls ? "bg-green-700" : "bg-gray-700"
-              }`}
-              onClick={() =>
-                setDebugInfo((prev) => ({
-                  ...prev,
-                  showControls: !prev.showControls,
-                }))
-              }
-            >
-              {debugInfo.showControls ? "Hide Controls" : "Show Controls"}
-            </button>
-
-            <button
-              className="px-2 py-1 text-[9px] rounded bg-blue-700"
-              onClick={() => {
-                // Tải lại iframe với URL mới
-                const iframe = document.querySelector(
-                  "#youtube-player iframe"
-                ) as HTMLIFrameElement;
-                if (iframe) {
-                  const videoId = videoState.nowPlayingData?.video_id;
-                  if (videoId) {
-                    // Lưu vị trí hiện tại
-                    const currentTime =
-                      playerRef.current?.getCurrentTime?.() || 0;
-
-                    // Tạo URL mới với tất cả tham số buộc chất lượng cao
-                    const newSrc = `https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1&origin=${
-                      window.location.origin
-                    }&autoplay=1&rel=0&modestbranding=1&vq=hd1080&hd=1&highres=1&quality=highres&iv_load_policy=3&playsinline=1&controls=${
-                      debugInfo.showControls ? 1 : 0
-                    }&fs=1&showinfo=0&hl=vi&cc_load_policy=0&color=white&start=${Math.floor(
-                      currentTime
-                    )}`;
-
-                    console.log("Manual reload with URL:", newSrc);
-                    iframe.src = newSrc;
-                  }
-                }
-              }}
-            >
-              Reload iframe
-            </button>
-          </div>
+          <button
+            className="w-full mt-1 px-2 py-1 text-[9px] rounded bg-blue-700"
+            onClick={() => {
+              setDebugInfo((prev) => ({
+                ...prev,
+                showControls: !prev.showControls,
+              }));
+            }}
+          >
+            Debug
+          </button>
         </div>
       )}
 
@@ -1430,12 +1589,18 @@ const VideoPlayer = () => {
       >
         <YouTubePlayerIframe
           playerRef={playerRef}
-          videoId={videoState.nowPlayingData?.video_id}
+          videoId={
+            videoState.nowPlayingData?.video_id ||
+            currentVideoRef.current ||
+            FALLBACK_VIDEO_ID
+          }
           onReady={handleYouTubePlayerReady}
           onStateChange={handleStateChange}
           onError={handleYouTubeError}
           onPlaybackQualityChange={handlePlaybackQualityChange}
-          isFallback={!videoState.nowPlayingData?.video_id}
+          isFallback={
+            !videoState.nowPlayingData?.video_id && !currentVideoRef.current
+          }
           fallbackVideoId={FALLBACK_VIDEO_ID}
           showControls={debugInfo.isDevMode && debugInfo.showControls}
         />
@@ -1490,9 +1655,12 @@ const VideoPlayer = () => {
       )}
 
       {/* Welcome screen when no song is playing */}
-      {!videoState.nowPlayingData?.video_id && (
+      {(!videoState.nowPlayingData?.video_id && !currentVideoRef.current) ||
+      videoState.currentVideoId === FALLBACK_VIDEO_ID ? (
         <WelcomeScreen currentMessageIndex={currentMessageIndex} />
-      )}
+      ) : !videoState.nowPlayingData?.video_id && currentVideoRef.current ? (
+        <BackupVideoMissingDataScreen />
+      ) : null}
 
       {/* Song title display */}
       {videoState.nowPlayingData && showTitle && (
@@ -1511,4 +1679,5 @@ const VideoPlayer = () => {
   );
 };
 
-export default VideoPlayer;
+// Export a memoized version of the component to prevent unnecessary re-renders
+export default memo(VideoPlayer);
