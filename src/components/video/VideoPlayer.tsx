@@ -1553,7 +1553,7 @@ const VideoPlayer = () => {
             ref={backupVideoRef}
             key={backupState.backupUrl}
             className="absolute inset-0 w-full h-full object-contain"
-            autoPlay={false}
+            autoPlay={true}
             playsInline
             controls={false}
             disablePictureInPicture
