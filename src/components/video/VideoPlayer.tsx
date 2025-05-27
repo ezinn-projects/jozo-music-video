@@ -529,18 +529,30 @@ const VideoPlayer = () => {
   // Điều chỉnh cách xử lý YouTubePlayerReady để sử dụng currentVideoRef khi cần
   const handleYouTubePlayerReady = useCallback(
     (event: YouTubePlayerEvent) => {
-      // Force quality when player is ready
+      // Kiểm tra xem có đang phát video chính hay fallback video
+      const isPlayingFallback = videoState.currentVideoId === FALLBACK_VIDEO_ID;
+
+      // Force quality when player is ready - chỉ áp dụng chất lượng cao cho video thực
       if (debugInfo.isDevMode) {
-        console.log("=== FORCING MAX QUALITY ON YOUTUBE PLAYER ===");
+        console.log(
+          `=== FORCING ${
+            isPlayingFallback ? "LOWEST" : "MAX"
+          } QUALITY ON YOUTUBE PLAYER ===`
+        );
       }
 
       try {
-        // Đặt chất lượng cao nhất có thể
-        event.target.setPlaybackQuality("hd1080");
+        if (isPlayingFallback) {
+          // Đặt chất lượng thấp nhất cho fallback video
+          event.target.setPlaybackQuality("small");
+        } else {
+          // Đặt chất lượng cao nhất có thể cho video thực
+          event.target.setPlaybackQuality("hd1080");
 
-        // Thử cả việc thiết lập quality range
-        if (event.target.setPlaybackQualityRange) {
-          event.target.setPlaybackQualityRange("hd1080", "hd1080");
+          // Thử cả việc thiết lập quality range
+          if (event.target.setPlaybackQualityRange) {
+            event.target.setPlaybackQualityRange("hd1080", "hd1080");
+          }
         }
 
         // Thay thế nhiều setTimeout bằng một cái duy nhất cho kiểm tra sau khi khởi động
@@ -548,7 +560,10 @@ const VideoPlayer = () => {
           try {
             // QUAN TRỌNG: Kiểm tra lại chất lượng
             if (event.target.setPlaybackQuality) {
-              event.target.setPlaybackQuality("hd1080");
+              // Áp dụng chất lượng tương ứng
+              event.target.setPlaybackQuality(
+                isPlayingFallback ? "small" : "hd1080"
+              );
             }
 
             // Kiểm tra xem player có bị mute không
@@ -578,7 +593,7 @@ const VideoPlayer = () => {
         }, 2000);
       } catch (e) {
         if (debugInfo.isDevMode) {
-          console.error("Error setting initial HD quality:", e);
+          console.error("Error setting initial quality:", e);
         }
       }
 
@@ -666,6 +681,10 @@ const VideoPlayer = () => {
     // Chỉ chạy trong chế độ development và khi có thay đổi chất lượng
     if (!debugInfo.isDevMode || !debugInfo.quality) return;
 
+    // Kiểm tra xem có đang phát fallback video hay không
+    const isPlayingFallback = videoState.currentVideoId === FALLBACK_VIDEO_ID;
+    if (isPlayingFallback) return; // Không cố ép chất lượng cao cho fallback video
+
     // Ghi log chất lượng hiện tại chỉ khi thay đổi thực sự
     if (debugInfo.qualityChangeCount <= 5) {
       console.log(
@@ -686,7 +705,12 @@ const VideoPlayer = () => {
         // Silent fail
       }
     }
-  }, [debugInfo.quality, debugInfo.qualityChangeCount, debugInfo.isDevMode]);
+  }, [
+    debugInfo.quality,
+    debugInfo.qualityChangeCount,
+    debugInfo.isDevMode,
+    videoState.currentVideoId,
+  ]);
 
   // Handle YouTube playback quality change
   const handlePlaybackQualityChange = useCallback(
@@ -702,7 +726,21 @@ const VideoPlayer = () => {
         qualityChangeCount: prev.qualityChangeCount + 1,
       }));
 
-      // Force quality back to HD 1080 if different
+      // Kiểm tra xem có đang phát fallback video hay không
+      const isPlayingFallback = videoState.currentVideoId === FALLBACK_VIDEO_ID;
+
+      if (isPlayingFallback) {
+        // Nếu là fallback video và chất lượng chưa phải là "small", thì set lại
+        if (event.data !== "small" && event.target.setPlaybackQuality) {
+          if (debugInfo.isDevMode) {
+            console.log("FALLBACK VIDEO - FORCING LOW QUALITY!");
+          }
+          event.target.setPlaybackQuality("small");
+        }
+        return; // Không cần xử lý tiếp nếu là fallback video
+      }
+
+      // Force quality back to HD 1080 if different (chỉ áp dụng cho video thực)
       if (
         event.data !== "hd1080" &&
         videoState.nowPlayingData &&
@@ -753,7 +791,16 @@ const VideoPlayer = () => {
         }
       }
     },
-    [debugInfo.qualityChangeCount, debugInfo.isDevMode]
+    [
+      setDebugInfo,
+      videoState.nowPlayingData,
+      backupState.youtubeError,
+      backupState.isLoadingBackup,
+      backupState.backupUrl,
+      debugInfo.isDevMode,
+      debugInfo.qualityChangeCount,
+      videoState.currentVideoId,
+    ]
   );
 
   // Hàm này gọi trực tiếp API khi việc dùng hook không có kết quả - tối ưu để giảm RAM

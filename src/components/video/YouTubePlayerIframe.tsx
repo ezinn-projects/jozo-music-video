@@ -278,15 +278,15 @@ const YouTubePlayerIframe: FC<YouTubePlayerIframeProps> = ({
           playsinline: 1,
           mute: 0,
           disablekb: 1,
-          // Ép chất lượng cao NHẤT có thể
-          vq: "hd1080",
-          hd: 1,
-          highres: 1,
+          // Ép chất lượng tùy theo loại video (fallback hoặc thực)
+          vq: isFallback ? "small" : "hd1080",
+          hd: isFallback ? 0 : 1,
+          highres: isFallback ? 0 : 1,
           html5: 1,
-          suggestedQuality: "hd1080",
+          suggestedQuality: isFallback ? "small" : "hd1080",
           loop: videoId ? 0 : 1,
           playlist: !videoId ? fallbackVideoId : undefined,
-          quality: "hd1080",
+          quality: isFallback ? "small" : "hd1080",
           hl: "vi",
           cc_load_policy: 0,
           cc_lang_pref: "none", // Không ưu tiên ngôn ngữ phụ đề nào
@@ -312,8 +312,12 @@ const YouTubePlayerIframe: FC<YouTubePlayerIframeProps> = ({
               // Ghi log chất lượng hiện tại
               console.log("Quality change detected:", event.data);
 
-              // Cố gắng buộc chất lượng HD nếu chưa phải là hd1080
-              if (event.data !== "hd1080" && event.target?.setPlaybackQuality) {
+              // Cố gắng buộc chất lượng HD nếu chưa phải là hd1080 và không phải là fallback video
+              if (
+                event.data !== (isFallback ? "small" : "hd1080") &&
+                event.target?.setPlaybackQuality &&
+                !isFallback // Chỉ buộc chất lượng cao khi không phải fallback
+              ) {
                 console.log("Quality not hd1080, forcing to hd1080...");
 
                 // Thử đổi cả URL iframe để buộc chất lượng cao
@@ -365,6 +369,18 @@ const YouTubePlayerIframe: FC<YouTubePlayerIframeProps> = ({
                   }, 500);
                 } catch (e) {
                   console.error("Error forcing quality in handler:", e);
+                }
+              } else if (
+                isFallback &&
+                event.data !== "small" &&
+                event.target?.setPlaybackQuality
+              ) {
+                // Với fallback video, buộc chất lượng thấp nhất
+                console.log("Setting fallback video to lowest quality (small)");
+                try {
+                  event.target.setPlaybackQuality("small");
+                } catch (e) {
+                  console.error("Error setting fallback to low quality:", e);
                 }
               }
             },
