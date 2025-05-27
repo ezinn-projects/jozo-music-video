@@ -84,12 +84,12 @@ export const PoweredByBadge: React.FC<PoweredByBadgeProps> = ({ show }) => {
 
   return (
     <div className="absolute bottom-3 right-3 z-50">
-      <div className="bg-black/75 px-3 py-1.5 rounded-lg shadow-lg border border-pink-500/30 flex items-center animate-[pulse_3s_ease-in-out_infinite]">
+      <div className="bg-black/75 px-3 py-1.5 rounded-lg shadow-lg border border-pink-500/30 flex items-center">
         <span className="text-white text-sm font-medium mr-1">Powered by</span>
         <span className="text-gradient bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-purple-500 font-bold text-sm">
           Jozo
         </span>
-        <div className="h-2 w-2 rounded-full bg-pink-500 ml-1.5 animate-[ping_1.5s_ease-in-out_infinite]"></div>
+        <div className="h-2 w-2 rounded-full bg-pink-500 ml-1.5"></div>
       </div>
     </div>
   );
@@ -106,7 +106,7 @@ export const ConnectionStatusIndicator: React.FC<
   if (connected || connectionAttempts === 0) return null;
 
   return (
-    <div className="absolute top-4 left-4 z-50 bg-red-500 px-4 py-2 rounded-full animate-pulse">
+    <div className="absolute top-4 left-4 z-50 bg-red-500 px-4 py-2 rounded-full">
       <p className="text-white text-sm">
         Đang kết nối lại... {connectionAttempts}
       </p>

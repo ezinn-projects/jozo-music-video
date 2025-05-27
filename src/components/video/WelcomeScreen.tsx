@@ -14,7 +14,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       {/* Fixed cute message at top */}
       <div className="w-full px-4 py-2">
         <div className="px-4 py-2 rounded-xl bg-black/30 backdrop-blur-sm border border-white/10 shadow-[0_0_15px_rgba(0,0,0,0.3)]">
-          <p className="text-lg font-bold text-center bg-gradient-to-r from-pink-400 via-yellow-300 to-purple-400 bg-clip-text text-transparent animate-gradient-x">
+          <p className="text-lg font-bold text-center bg-gradient-to-r from-pink-400 via-yellow-300 to-purple-400 bg-clip-text text-transparent">
             {CUTE_MESSAGES[currentMessageIndex]}
           </p>
         </div>
@@ -24,21 +24,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       <div className="flex-1 px-2 py-2">
         <TrendingSongsList />
       </div>
-
-      {/* Gradient animation */}
-      <style>
-        {`
-          @keyframes gradient-x {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-          }
-          .animate-gradient-x {
-            background-size: 200% auto;
-            animation: gradient-x 8s ease infinite;
-          }
-        `}
-      </style>
     </div>
   );
 };

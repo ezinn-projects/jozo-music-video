@@ -63,7 +63,7 @@ const VideoPlayer = () => {
     nowPlayingData: null,
     currentVideoId: "",
     isPaused: true,
-    isBuffering: true,
+    isBuffering: false,
   });
 
   // Debug info state
@@ -276,7 +276,11 @@ const VideoPlayer = () => {
 
       switch (event.data) {
         case YT.BUFFERING:
-          setVideoState((prev) => ({ ...prev, isBuffering: true }));
+          // Chỉ set isBuffering = true khi đang xem video (có nowPlayingData)
+          // và không phải đang chuyển bài
+          if (videoState.nowPlayingData && !isChangingSong) {
+            setVideoState((prev) => ({ ...prev, isBuffering: true }));
+          }
           break;
         case YT.PLAYING:
           if (debugInfo.isDevMode) {
@@ -1311,7 +1315,7 @@ const VideoPlayer = () => {
   const BackupVideoMissingDataScreen = () => (
     <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
       <div className="text-white text-center">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-white mx-auto mb-4">
+        <div className="rounded-full h-16 w-16 border-t-4 border-white mx-auto mb-4">
           <img src={logo} alt="logo" className="w-full h-full" />
         </div>
         <p className="text-xl">Đang tải lại thông tin bài hát...</p>
@@ -1531,12 +1535,15 @@ const VideoPlayer = () => {
         </div>
       )}
 
-      {/* Loading indicator */}
-      {isChangingSong && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-40">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-white">
+      {/* Unified Loading indicator */}
+      {(backupState.isLoadingBackup || isChangingSong) && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-50 fade-in">
+          <div className="rounded-full h-16 w-16 border-t-4 border-white mx-auto mb-4">
             <img src={logo} alt="logo" className="w-full h-full" />
           </div>
+          {videoState.nowPlayingData && (
+            <p className="text-white">Đang tải...</p>
+          )}
         </div>
       )}
 
@@ -1606,16 +1613,6 @@ const VideoPlayer = () => {
         />
       </div>
 
-      {/* Loading indicator khi đang tải video từ server */}
-      {(backupState.isLoadingBackup ||
-        (isChangingSong && videoState.isBuffering)) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black z-50 fade-in">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-white">
-            <img src={logo} alt="logo" className="w-full h-full" />
-          </div>
-        </div>
-      )}
-
       {/* Youtube overlay to prevent user from seeing any error screen */}
       {backupState.youtubeError && !backupState.backupVideoReady && (
         <div className="absolute inset-0 bg-black z-40"></div>
@@ -1675,6 +1672,20 @@ const VideoPlayer = () => {
 
       {/* Powered by Jozo */}
       <PoweredByBadge show={showPoweredBy || !videoState.nowPlayingData} />
+
+      {/* Thông báo lỗi/khôi phục khi cả backup và youtube đều lỗi */}
+      {backupState.youtubeError &&
+        !backupState.backupVideoReady &&
+        !debugInfo.isDevMode && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
+            <div className="rounded-full h-16 w-16 border-t-4 border-white">
+              <img src={logo} alt="logo" className="w-full h-full" />
+            </div>
+            <p className="text-white mt-5 text-center max-w-md">
+              Đang khôi phục video...
+            </p>
+          </div>
+        )}
     </div>
   );
 };
