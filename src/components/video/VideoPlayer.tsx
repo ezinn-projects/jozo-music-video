@@ -349,7 +349,7 @@ const VideoPlayer = () => {
   useEffect(() => {
     const intervalId = setInterval(() => {
       setCurrentMessageIndex((prev) => (prev + 1) % CUTE_MESSAGES.length);
-    }, 2500); // Change message every 2.5 seconds
+    }, 5000); // Tăng từ 2.5s lên 5s để giảm số lần update state
 
     return () => clearInterval(intervalId);
   }, []);
@@ -365,7 +365,7 @@ const VideoPlayer = () => {
         setShowTitle(true);
         const timer = setTimeout(() => {
           setShowTitle(false);
-        }, 8000);
+        }, 10000); // Tăng từ 8s lên 10s để giảm số lần cập nhật state
         return () => clearTimeout(timer);
       }
     }
@@ -833,39 +833,88 @@ const VideoPlayer = () => {
 
         // Thêm param ngăn cache
         const noCache = Date.now();
-        const response = await fetch(
-          `${backupApiUrl}?_=${noCache}&direct=true`,
-          {
-            headers: {
-              "Cache-Control": "no-cache",
-              Pragma: "no-cache",
-            },
-          }
-        );
 
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (data?.result?.url) {
+        // Tạo controller để abort nếu quá thời gian
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
           if (debugInfo.isDevMode) {
-            console.log("Got direct backup URL:", data.result.url);
+            console.log("Direct API call timed out, aborting");
           }
+          controller.abort();
+        }, 20000);
 
-          // Cập nhật state với URL mới
-          setBackupState((prev) => ({
-            ...prev,
-            backupUrl: data.result.url,
-            isLoadingBackup: false,
-            youtubeError: true,
-          }));
+        // Thử fetch 3 lần nếu cần
+        let attempt = 0;
+        const maxAttempts = 3;
+        let lastError = null;
 
-          return data.result.url;
-        } else {
-          throw new Error("No URL in response");
+        while (attempt < maxAttempts) {
+          attempt++;
+          try {
+            if (debugInfo.isDevMode) {
+              console.log(`Direct API call attempt ${attempt}/${maxAttempts}`);
+            }
+
+            const response = await fetch(
+              `${backupApiUrl}?_=${noCache}&direct=true&attempt=${attempt}`,
+              {
+                headers: {
+                  "Cache-Control": "no-cache, no-store, must-revalidate",
+                  Pragma: "no-cache",
+                  Expires: "0",
+                },
+                signal: controller.signal,
+              }
+            );
+
+            // Clear timeout on success
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+              throw new Error(`API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data?.result?.url) {
+              if (debugInfo.isDevMode) {
+                console.log("Got direct backup URL:", data.result.url);
+              }
+
+              // Cập nhật state với URL mới
+              setBackupState((prev) => ({
+                ...prev,
+                backupUrl: data.result.url,
+                isLoadingBackup: false,
+                youtubeError: true,
+              }));
+
+              return data.result.url;
+            } else {
+              throw new Error("No URL in response");
+            }
+          } catch (err: any) {
+            lastError = err;
+            if (debugInfo.isDevMode) {
+              console.error(
+                `Error in direct API call attempt ${attempt}:`,
+                err
+              );
+            }
+
+            // Nếu là lỗi abort hoặc đây là lần cuối, không cần thử lại
+            if (err.name === "AbortError" || attempt >= maxAttempts) {
+              break;
+            }
+
+            // Chờ 1 giây trước khi thử lại
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
         }
+
+        // Nếu đến đây nghĩa là tất cả các lần thử đều thất bại
+        clearTimeout(timeoutId);
+        throw lastError || new Error("All API attempts failed");
       } catch (err) {
         if (debugInfo.isDevMode) {
           console.error("Error in direct API call:", err);
@@ -1251,18 +1300,18 @@ const VideoPlayer = () => {
       if (!playerRef.current) return;
 
       // 1. Kiểm tra và ép chất lượng HD - giảm tần suất kiểm tra
-      if (Math.random() < 0.3) {
-        // Chỉ chạy 30% thời gian
+      if (Math.random() < 0.2) {
+        // Giảm từ 30% xuống 20% thời gian
         try {
           playerRef.current.setPlaybackQuality?.("hd1080");
 
           // Kiểm tra và log các chất lượng có sẵn (giới hạn tần suất cập nhật)
           if (
             playerRef.current.getAvailableQualityLevels &&
-            Math.random() < 0.3 &&
+            Math.random() < 0.2 &&
             debugInfo.isDevMode
           ) {
-            // Chỉ 30% lần kiểm tra
+            // Giảm từ 30% xuống 20% lần kiểm tra
             const qualities = playerRef.current.getAvailableQualityLevels();
             if (
               JSON.stringify(qualities) !==
@@ -1281,8 +1330,8 @@ const VideoPlayer = () => {
       }
 
       // 2. Kiểm tra âm thanh và sửa nếu cần - giảm tần suất kiểm tra
-      if (Math.random() < 0.5) {
-        // Chỉ chạy 50% thời gian
+      if (Math.random() < 0.3) {
+        // Giảm từ 50% xuống 30% thời gian
         try {
           // Kiểm tra mute
           const isMuted = playerRef.current.isMuted?.() || false;
@@ -1339,7 +1388,7 @@ const VideoPlayer = () => {
       } catch {
         // Ignore errors
       }
-    }, 5000); // Tăng từ 3 giây lên 5 giây để giảm số lần thực thi
+    }, 8000); // Tăng từ 5 giây lên 8 giây để giảm số lần thực thi
 
     return () => {
       if (debugInfo.isDevMode) {
@@ -1365,7 +1414,7 @@ const VideoPlayer = () => {
         <div className="rounded-full h-16 w-16 border-t-4 border-white mx-auto mb-4">
           <img src={logo} alt="logo" className="w-full h-full" />
         </div>
-        <p className="text-xl">Đang tải lại thông tin bài hát...</p>
+        <p className="text-xl">Đang tải video...</p>
       </div>
     </div>
   );
@@ -1468,6 +1517,51 @@ const VideoPlayer = () => {
       socket.off("now_playing_cleared", handleNowPlayingCleared);
     };
   }, [socket, debugInfo.isDevMode]);
+
+  // Thêm effect để tự động reset trạng thái lỗi YouTube sau một khoảng thời gian
+  // nếu không thể tải backup video
+  useEffect(() => {
+    // Chỉ áp dụng khi có lỗi YouTube nhưng không có URL backup và không còn đang tải
+    if (
+      backupState.youtubeError &&
+      !backupState.backupUrl &&
+      !backupState.isLoadingBackup
+    ) {
+      // Tạo timeout để tự động thử lại sau 30 giây
+      const resetTimeout = setTimeout(() => {
+        if (debugInfo.isDevMode) {
+          console.log("Auto resetting YouTube error state after timeout");
+        }
+
+        // Reset trạng thái lỗi để cho phép YouTube thử lại
+        setBackupState((prev) => ({
+          ...prev,
+          youtubeError: false,
+          backupError: false,
+        }));
+
+        // Thử tải lại trang nếu vẫn ở trong trang
+        if (
+          videoState.nowPlayingData?.video_id &&
+          roomId &&
+          socket?.connected
+        ) {
+          socket.emit("request_current_song", { roomId });
+        }
+      }, 30000); // 30 giây
+
+      return () => clearTimeout(resetTimeout);
+    }
+  }, [
+    backupState.youtubeError,
+    backupState.backupUrl,
+    backupState.isLoadingBackup,
+    debugInfo.isDevMode,
+    videoState.nowPlayingData?.video_id,
+    roomId,
+    socket,
+    setBackupState,
+  ]);
 
   // If videos are turned off, show RecordingStudio component
   if (isVideoOff) {
@@ -1588,9 +1682,7 @@ const VideoPlayer = () => {
           <div className="rounded-full h-16 w-16 border-t-4 border-white mx-auto mb-4">
             <img src={logo} alt="logo" className="w-full h-full" />
           </div>
-          {videoState.nowPlayingData && (
-            <p className="text-white">Đang tải...</p>
-          )}
+          <p className="text-white">Đang tải video...</p>
         </div>
       )}
 
@@ -1729,7 +1821,9 @@ const VideoPlayer = () => {
               <img src={logo} alt="logo" className="w-full h-full" />
             </div>
             <p className="text-white mt-5 text-center max-w-md">
-              Đang khôi phục video...
+              {backupState.isLoadingBackup
+                ? "Đang tải video..."
+                : "Video không khả dụng! Vui lòng thử lại sau."}
             </p>
           </div>
         )}

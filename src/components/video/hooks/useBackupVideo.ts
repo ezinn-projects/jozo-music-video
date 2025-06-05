@@ -42,6 +42,13 @@ export function useBackupVideo({
   const roomIdRef = useRef(roomId);
   const lastApiCallTimeRef = useRef<number>(0);
   const apiCallCountRef = useRef<number>(0);
+  // Thêm một ref để theo dõi trạng thái hiện tại của backupState
+  const backupStateRef = useRef(backupState);
+
+  // Cập nhật ref khi backupState thay đổi
+  useEffect(() => {
+    backupStateRef.current = backupState;
+  }, [backupState]);
 
   // Update refs when values change
   useEffect(() => {
@@ -66,8 +73,11 @@ export function useBackupVideo({
       return;
     }
 
+    // Sử dụng backupStateRef thay vì backupState để luôn lấy giá trị mới nhất
+    const currentBackupState = backupStateRef.current;
+
     // Nếu đã đang trong trạng thái lỗi hoặc đang tải backup, không tiếp tục
-    if (backupState.backupUrl || backupState.isLoadingBackup) {
+    if (currentBackupState.backupUrl || currentBackupState.isLoadingBackup) {
       console.log(
         "[SKIP] Already loading or using backup URL, no API call needed"
       );
@@ -175,8 +185,10 @@ export function useBackupVideo({
 
       // Thử lại sau 2 giây nếu thất bại
       setTimeout(() => {
+        // Sử dụng ref thay vì giá trị tại thời điểm closure được tạo
+        const currentState = backupStateRef.current;
         // Chỉ thử lại nếu vẫn trong trạng thái lỗi và chưa có backup URL
-        if (!backupState.backupUrl && backupState.youtubeError) {
+        if (!currentState.backupUrl && currentState.youtubeError) {
           console.log("Retrying backup API call...");
           handleYouTubeError();
         }

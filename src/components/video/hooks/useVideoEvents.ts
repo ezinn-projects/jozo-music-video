@@ -59,6 +59,12 @@ export function useVideoEvents({
   const backupStateRef = useRef(backupState);
   const socketRef = useRef(socket);
 
+  // Thêm ref để lưu trữ thời gian gần nhất đã gửi, đặt ở đây để không gặp lỗi
+  const lastTimeRef = useRef<{
+    currentTime: number;
+    isPlaying: boolean;
+  }>({ currentTime: 0, isPlaying: false });
+
   // Update refs when values change
   useEffect(() => {
     videoStateRef.current = videoState;
@@ -342,7 +348,12 @@ export function useVideoEvents({
         }
       }
 
+      // Chỉ emit khi thời gian thay đổi đáng kể (>= 2 giây) hoặc trạng thái phát thay đổi
+      const timeDiff = Math.abs(currentTime - lastTimeRef.current.currentTime);
+      const stateChanged = isPlaying !== lastTimeRef.current.isPlaying;
+
       if (
+        (timeDiff >= 2 || stateChanged) &&
         currentTime !== undefined &&
         duration &&
         !isNaN(currentTime) &&
@@ -355,6 +366,9 @@ export function useVideoEvents({
           duration,
           isPlaying,
         });
+
+        // Cập nhật thời gian và trạng thái đã gửi
+        lastTimeRef.current = { currentTime, isPlaying };
       }
       return;
     }
@@ -387,7 +401,18 @@ export function useVideoEvents({
         });
       }
 
-      if (currentTime && duration && !isNaN(currentTime) && !isNaN(duration)) {
+      // Chỉ emit khi thời gian thay đổi đáng kể (>= 2 giây) hoặc trạng thái phát thay đổi
+      const timeDiff = Math.abs(currentTime - lastTimeRef.current.currentTime);
+      const stateChanged =
+        !videoState.isPaused !== lastTimeRef.current.isPlaying;
+
+      if (
+        (timeDiff >= 2 || stateChanged) &&
+        currentTime &&
+        duration &&
+        !isNaN(currentTime) &&
+        !isNaN(duration)
+      ) {
         socket.emit("time_update", {
           roomId,
           videoId: videoData.video_id,
@@ -395,13 +420,19 @@ export function useVideoEvents({
           duration,
           isPlaying: !videoState.isPaused,
         });
+
+        // Cập nhật thời gian và trạng thái đã gửi
+        lastTimeRef.current = {
+          currentTime,
+          isPlaying: !videoState.isPaused,
+        };
       }
     } catch (error) {
       console.error("Error accessing YouTube player methods:", error);
     }
   }, [backupVideoRef, playerRef, handleBackupVideoEnd]);
 
-  // Set up time update interval
+  // Set up time update interval với thời gian lâu hơn
   useEffect(() => {
     const socket = socketRef.current;
     const videoState = videoStateRef.current;
@@ -409,7 +440,8 @@ export function useVideoEvents({
     if (!socket || videoState.isPaused) return;
 
     console.log("Setting up time update interval");
-    const intervalId = window.setInterval(handleTimeUpdate, 1000);
+    // Tăng thời gian giữa các lần cập nhật từ 1 giây lên 3 giây
+    const intervalId = window.setInterval(handleTimeUpdate, 3000);
 
     return () => {
       console.log("Clearing time update interval");

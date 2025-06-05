@@ -159,7 +159,7 @@ export function useSocketConnection({
       if (socketInstance.connected) {
         socketInstance.emit("heartbeat", { roomId });
       }
-    }, 30000);
+    }, 60000);
 
     // Cleanup
     return () => {
