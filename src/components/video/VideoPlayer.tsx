@@ -107,6 +107,9 @@ const VideoPlayer = () => {
   // Thêm ref để theo dõi trạng thái video
   const currentVideoRef = useRef<string | null>(null);
 
+  // Thêm flag để theo dõi khi event được trigger bởi server
+  const isServerTriggeredRef = useRef(false);
+
   // Khi videoState.nowPlayingData thay đổi, lưu vào ref
   useEffect(() => {
     if (videoState.nowPlayingData?.video_id) {
@@ -257,6 +260,9 @@ const VideoPlayer = () => {
     },
   });
 
+  // Thêm ref để debounce state changes
+  const lastEventTimeRef = useRef(0);
+
   // Handle YouTube player state changes
   const handleStateChange = useCallback(
     (event: YouTubePlayerEvent) => {
@@ -266,13 +272,30 @@ const VideoPlayer = () => {
 
       // Chỉ log trong dev mode
       if (debugInfo.isDevMode) {
-        console.log("YouTube State Change:", event.data);
+        console.log(
+          "YouTube State Change:",
+          event.data,
+          "Server triggered:",
+          isServerTriggeredRef.current
+        );
       }
 
       // Update debug state chỉ trong dev mode
       if (debugInfo.isDevMode) {
         setDebugInfo((prev) => ({ ...prev, playerState: event.data }));
       }
+
+      // Thêm debouncing để tránh spam events
+      const now = Date.now();
+
+      // Skip if same event happened too recently (within 100ms)
+      if (now - lastEventTimeRef.current < 100) {
+        if (debugInfo.isDevMode) {
+          console.log("Skipping duplicate state change event");
+        }
+        return;
+      }
+      lastEventTimeRef.current = now;
 
       switch (event.data) {
         case YT.BUFFERING:
@@ -282,7 +305,7 @@ const VideoPlayer = () => {
             setVideoState((prev) => ({ ...prev, isBuffering: true }));
           }
           break;
-        case YT.PLAYING:
+        case YT.PLAYING: {
           if (debugInfo.isDevMode) {
             console.log("Video is now playing");
           }
@@ -310,12 +333,28 @@ const VideoPlayer = () => {
             }
           }
 
-          socket.emit("video_event", {
-            roomId,
-            event: "play",
-            videoId: playerRef.current.getVideoData().video_id,
-            currentTime: playerRef.current.getCurrentTime(),
-          });
+          // CHỈ emit video_event nếu KHÔNG phải do server command
+          if (!isServerTriggeredRef.current) {
+            const currentTime = playerRef.current.getCurrentTime();
+            const videoId = playerRef.current.getVideoData().video_id;
+
+            if (debugInfo.isDevMode) {
+              console.log(
+                `Emitting play event: videoId=${videoId}, time=${currentTime}`
+              );
+            }
+
+            socket.emit("video_event", {
+              roomId,
+              event: "play",
+              videoId,
+              currentTime,
+            });
+          } else {
+            if (debugInfo.isDevMode) {
+              console.log("Skipping play event emit - server triggered");
+            }
+          }
 
           // Force quality whenever video is playing
           if (
@@ -325,24 +364,58 @@ const VideoPlayer = () => {
             playerRef.current.setPlaybackQuality("hd1080");
           }
           break;
-        case YT.PAUSED:
+        }
+        case YT.PAUSED: {
           if (debugInfo.isDevMode) {
             console.log("Video is now paused");
           }
           setVideoState((prev) => ({ ...prev, isPaused: true }));
-          socket.emit("video_event", {
-            roomId,
-            event: "pause",
-            videoId: playerRef.current.getVideoData().video_id,
-            currentTime: playerRef.current.getCurrentTime(),
-          });
+
+          // CHỈ emit video_event nếu KHÔNG phải do server command
+          if (!isServerTriggeredRef.current) {
+            const pauseCurrentTime = playerRef.current.getCurrentTime();
+            const pauseVideoId = playerRef.current.getVideoData().video_id;
+
+            if (debugInfo.isDevMode) {
+              console.log(
+                `Emitting pause event: videoId=${pauseVideoId}, time=${pauseCurrentTime}`
+              );
+            }
+
+            socket.emit("video_event", {
+              roomId,
+              event: "pause",
+              videoId: pauseVideoId,
+              currentTime: pauseCurrentTime,
+            });
+          } else {
+            if (debugInfo.isDevMode) {
+              console.log("Skipping pause event emit - server triggered");
+            }
+          }
           break;
+        }
         case YT.ENDED:
           handleVideoEnd();
           break;
       }
+
+      // Reset server triggered flag sau khi xử lý xong
+      if (isServerTriggeredRef.current) {
+        setTimeout(() => {
+          isServerTriggeredRef.current = false;
+        }, 100);
+      }
     },
-    [socket, roomId, handleVideoEnd, volume, debugInfo.isDevMode]
+    [
+      socket,
+      roomId,
+      handleVideoEnd,
+      volume,
+      debugInfo.isDevMode,
+      videoState.nowPlayingData,
+      isChangingSong,
+    ]
   );
 
   // Rotate cute messages
@@ -356,7 +429,10 @@ const VideoPlayer = () => {
 
   // Show/hide song title
   useEffect(() => {
-    if (videoState.nowPlayingData) {
+    if (
+      videoState.nowPlayingData &&
+      videoState.nowPlayingData.video_id !== FALLBACK_VIDEO_ID
+    ) {
       if (videoState.isPaused) {
         // Always show when paused
         setShowTitle(true);
@@ -405,7 +481,8 @@ const VideoPlayer = () => {
     if (
       !videoState.isBuffering &&
       isChangingSong &&
-      videoState.nowPlayingData
+      videoState.nowPlayingData &&
+      videoState.nowPlayingData.video_id !== FALLBACK_VIDEO_ID
     ) {
       if (debugInfo.isDevMode) {
         console.log("Video no longer buffering - hiding loading indicator");
@@ -462,7 +539,10 @@ const VideoPlayer = () => {
 
   // Handle "Powered by Jozo" display
   useEffect(() => {
-    if (videoState.nowPlayingData) {
+    if (
+      videoState.nowPlayingData &&
+      videoState.nowPlayingData.video_id !== FALLBACK_VIDEO_ID
+    ) {
       // Show at start
       setShowPoweredBy(true);
 
@@ -590,7 +670,7 @@ const VideoPlayer = () => {
               console.error("Error during post-setup validation:", e);
             }
           }
-        }, 2000);
+        }, 1000); // Giảm từ 2 giây xuống 1 giây để sync nhanh hơn
       } catch (e) {
         if (debugInfo.isDevMode) {
           console.error("Error setting initial quality:", e);
@@ -617,21 +697,31 @@ const VideoPlayer = () => {
       }
 
       try {
+        // Cải thiện tính toán thời gian sync
+        if (videoState.nowPlayingData) {
+          // Tính toán thời gian hiện tại chính xác hơn
+          const serverTimestamp = videoState.nowPlayingData.timestamp;
+          const serverCurrentTime = videoState.nowPlayingData.currentTime;
+          const now = Date.now();
+          const elapsedSinceServer = (now - serverTimestamp) / 1000;
+          const targetTime = Math.max(
+            0,
+            serverCurrentTime + elapsedSinceServer
+          );
+
+          if (debugInfo.isDevMode) {
+            console.log(
+              `Syncing to time: ${targetTime} (server: ${serverCurrentTime}, elapsed: ${elapsedSinceServer})`
+            );
+          }
+
+          event.target.seekTo(targetTime, true);
+        }
+
         event.target.playVideo();
 
         // Luôn ẩn loading indicator khi player đã sẵn sàng
         setIsChangingSong(false);
-
-        // Only seek time when there's an active video
-        if (videoState.nowPlayingData) {
-          const currentServerTime =
-            videoState.nowPlayingData.timestamp +
-            (Date.now() - videoState.nowPlayingData.timestamp) / 1000;
-          const targetTime =
-            videoState.nowPlayingData.currentTime +
-            (currentServerTime - videoState.nowPlayingData.timestamp);
-          event.target.seekTo(targetTime, true);
-        }
       } catch (e) {
         if (debugInfo.isDevMode) {
           console.error("Error playing video:", e);
@@ -640,14 +730,17 @@ const VideoPlayer = () => {
         try {
           event.target.playVideo();
 
-          // Still try to seek time if there's an active video
+          // Still try to seek time if there's an active video với tính toán cải thiện
           if (videoState.nowPlayingData) {
-            const currentServerTime =
-              videoState.nowPlayingData.timestamp +
-              (Date.now() - videoState.nowPlayingData.timestamp) / 1000;
-            const targetTime =
-              videoState.nowPlayingData.currentTime +
-              (currentServerTime - videoState.nowPlayingData.timestamp);
+            const serverTimestamp = videoState.nowPlayingData.timestamp;
+            const serverCurrentTime = videoState.nowPlayingData.currentTime;
+            const now = Date.now();
+            const elapsedSinceServer = (now - serverTimestamp) / 1000;
+            const targetTime = Math.max(
+              0,
+              serverCurrentTime + elapsedSinceServer
+            );
+
             event.target.seekTo(targetTime, true);
           }
         } catch (combinedError) {
@@ -673,6 +766,7 @@ const VideoPlayer = () => {
       videoState.nowPlayingData,
       debugInfo.isDevMode,
       currentVideoRef,
+      videoState.currentVideoId,
     ]
   );
 
@@ -1184,8 +1278,6 @@ const VideoPlayer = () => {
     // Thêm vào head
     document.head.appendChild(styleElement);
 
-    console.log("Added CSS to completely disable YouTube iframe");
-
     return () => {
       // Xóa style element khi unmount hoặc trạng thái thay đổi
       if (document.head.contains(styleElement)) {
@@ -1284,8 +1376,12 @@ const VideoPlayer = () => {
 
   // Kết hợp các interval riêng lẻ thành một interval đa nhiệm
   useEffect(() => {
-    // Chỉ chạy khi có video đang phát
-    if (!videoState.nowPlayingData?.video_id) return;
+    // Chỉ chạy khi có video đang phát và không phải là fallback video
+    if (
+      !videoState.nowPlayingData?.video_id ||
+      videoState.nowPlayingData.video_id === FALLBACK_VIDEO_ID
+    )
+      return;
 
     // Chỉ log trong development mode
     if (debugInfo.isDevMode) {
@@ -1497,7 +1593,6 @@ const VideoPlayer = () => {
       socket.off("current_song", handleCurrentSong);
     };
   }, [socket, debugInfo.isDevMode]);
-
   // Xử lý khi danh sách phát bị xóa
   useEffect(() => {
     if (!socket) return;
@@ -1652,27 +1747,39 @@ const VideoPlayer = () => {
         connectionAttempts={socketStatus.connectionAttempts}
       />
 
-      {/* Debug information in development mode - Tối giản */}
-      {debugInfo.isDevMode && debugInfo.showControls && (
-        <div className="absolute top-20 right-4 z-50 bg-black/70 text-white p-2 rounded-md text-xs font-mono">
-          <div>
-            Q:{debugInfo.quality === "hd1080" ? "HD" : debugInfo.quality}
-            {" | "}
-            P:{videoState.nowPlayingData?.video_id?.slice(-5) || "none"}
-            {" | "}
-            B:{backupState.backupUrl ? "Y" : "N"}
+      {/* Debug panel temporarily removed to fix white screen issue */}
+
+      {/* Simple debug panel - safe version */}
+      {debugInfo.isDevMode && (
+        <div className="absolute top-4 right-4 z-50 bg-black/90 text-white p-3 rounded-lg text-xs font-mono max-w-xs">
+          <div className="flex justify-between items-center mb-2">
+            <span className="font-bold">Debug</span>
+            <button
+              className="px-2 py-1 text-[10px] rounded bg-gray-600 hover:bg-gray-500"
+              onClick={() => {
+                setDebugInfo((prev) => ({
+                  ...prev,
+                  showControls: !prev.showControls,
+                }));
+              }}
+            >
+              {debugInfo.showControls ? "Hide" : "Show"}
+            </button>
           </div>
-          <button
-            className="w-full mt-1 px-2 py-1 text-[9px] rounded bg-blue-700"
-            onClick={() => {
-              setDebugInfo((prev) => ({
-                ...prev,
-                showControls: !prev.showControls,
-              }));
-            }}
-          >
-            Debug
-          </button>
+
+          {debugInfo.showControls && (
+            <div className="space-y-1">
+              <div>State: {videoState.isPaused ? "PAUSED" : "PLAYING"}</div>
+              <div>
+                Video:{" "}
+                {videoState.nowPlayingData?.video_id?.slice(-8) || "none"}
+              </div>
+              <div>Backup: {backupState.backupUrl ? "ACTIVE" : "OFF"}</div>
+              <div>Quality: {debugInfo.quality || "unknown"}</div>
+              <div>Buffer: {videoState.isBuffering ? "YES" : "NO"}</div>
+              <div>Socket: {socketStatus.connected ? "ON" : "OFF"}</div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1776,54 +1883,84 @@ const VideoPlayer = () => {
       </div>
 
       {/* Pause backdrop blur */}
-      {videoState.isPaused && videoState.nowPlayingData && (
-        <div className="absolute inset-0 backdrop-blur-sm z-[25]"></div>
-      )}
+      {videoState.isPaused &&
+        videoState.nowPlayingData &&
+        videoState.nowPlayingData.video_id !== FALLBACK_VIDEO_ID && (
+          <div className="absolute inset-0 backdrop-blur-sm z-[25]"></div>
+        )}
 
       {/* Pause background gradient */}
-      {videoState.isPaused && videoState.nowPlayingData && (
-        <div className="absolute bottom-0 left-0 right-0 h-[250px] bg-gradient-to-t from-black via-black/80 to-transparent z-[20]"></div>
-      )}
+      {videoState.isPaused &&
+        videoState.nowPlayingData &&
+        videoState.nowPlayingData.video_id !== FALLBACK_VIDEO_ID && (
+          <div className="absolute bottom-0 left-0 right-0 h-[250px] bg-gradient-to-t from-black via-black/80 to-transparent z-[20]"></div>
+        )}
 
       {/* Pause overlay */}
-      {videoState.isPaused && videoState.nowPlayingData && (
-        <PauseOverlay nowPlayingData={videoState.nowPlayingData} />
-      )}
+      {videoState.isPaused &&
+        videoState.nowPlayingData &&
+        videoState.nowPlayingData.video_id !== FALLBACK_VIDEO_ID && (
+          <PauseOverlay nowPlayingData={videoState.nowPlayingData} />
+        )}
 
       {/* Welcome screen when no song is playing */}
       {(!videoState.nowPlayingData?.video_id && !currentVideoRef.current) ||
-      videoState.currentVideoId === FALLBACK_VIDEO_ID ? (
+      videoState.currentVideoId === FALLBACK_VIDEO_ID ||
+      videoState.nowPlayingData?.video_id === FALLBACK_VIDEO_ID ? (
         <WelcomeScreen currentMessageIndex={currentMessageIndex} />
       ) : !videoState.nowPlayingData?.video_id && currentVideoRef.current ? (
         <BackupVideoMissingDataScreen />
       ) : null}
 
       {/* Song title display */}
-      {videoState.nowPlayingData && showTitle && (
-        <div className="absolute top-4 left-4 z-50 bg-black p-4 rounded-lg text-white">
-          <p className="font-bold">{videoState.nowPlayingData.title}</p>
-          <p className="text-sm">Jozo</p>
-        </div>
-      )}
+      {videoState.nowPlayingData &&
+        showTitle &&
+        videoState.nowPlayingData.video_id !== FALLBACK_VIDEO_ID && (
+          <div className="absolute top-4 left-4 z-50 bg-black p-4 rounded-lg text-white">
+            <p className="font-bold">{videoState.nowPlayingData.title}</p>
+            <p className="text-sm">Jozo</p>
+          </div>
+        )}
 
       {/* Volume toast */}
       <VolumeToastComponent volumeToast={volumeToast} />
 
       {/* Powered by Jozo */}
-      <PoweredByBadge show={showPoweredBy || !videoState.nowPlayingData} />
+      <PoweredByBadge
+        show={
+          showPoweredBy ||
+          !videoState.nowPlayingData ||
+          videoState.nowPlayingData?.video_id === FALLBACK_VIDEO_ID
+        }
+      />
 
       {/* Thông báo lỗi/khôi phục khi cả backup và youtube đều lỗi */}
       {backupState.youtubeError &&
         !backupState.backupVideoReady &&
+        !backupState.isLoadingBackup &&
+        backupState.backupError &&
         !debugInfo.isDevMode && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
             <div className="rounded-full h-16 w-16 border-t-4 border-white">
               <img src={logo} alt="logo" className="w-full h-full" />
             </div>
             <p className="text-white mt-5 text-center max-w-md">
-              {backupState.isLoadingBackup
-                ? "Đang tải video..."
-                : "Video không khả dụng! Vui lòng thử lại sau."}
+              Video không khả dụng! Vui lòng thử lại sau.
+            </p>
+          </div>
+        )}
+
+      {/* Loading indicator khi đang tải backup video */}
+      {backupState.youtubeError &&
+        !backupState.backupVideoReady &&
+        backupState.isLoadingBackup &&
+        !debugInfo.isDevMode && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
+            <div className="rounded-full h-16 w-16 border-t-4 border-white">
+              <img src={logo} alt="logo" className="w-full h-full" />
+            </div>
+            <p className="text-white mt-5 text-center max-w-md">
+              Đang tải video...
             </p>
           </div>
         )}

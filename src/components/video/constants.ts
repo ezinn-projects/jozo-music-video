@@ -1,7 +1,7 @@
 // import { TrendingSong } from "./types";
 
 // Default video ID to play when no song is selected
-export const FALLBACK_VIDEO_ID = "ANer4zU5pn4";
+export const FALLBACK_VIDEO_ID = "RKhsHGfrFmY"; // G-Dragon - Crooked
 
 // Cute messages to display when waiting for a song
 export const CUTE_MESSAGES = [
