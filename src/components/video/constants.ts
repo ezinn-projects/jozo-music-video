@@ -1,7 +1,16 @@
 // import { TrendingSong } from "./types";
 
-// Default video ID to play when no song is selected
-export const FALLBACK_VIDEO_ID = "RKhsHGfrFmY"; // G-Dragon - Crooked
+// Default fallback video ID for audio-only playback when no song is selected
+// This video will be completely hidden using CSS, only audio will be played to save bandwidth
+// Video ID: dg1_0zCosRw - optimized for small quality to minimize data usage
+export const FALLBACK_VIDEO_ID = "dg1_0zCosRw";
+
+// Alternative lightweight video options for fallback (commented out):
+// export const FALLBACK_VIDEO_ID = "dQw4w9WgXcQ"; // Rick Roll - classic lightweight option
+// export const FALLBACK_VIDEO_ID = "oHg5SJYRHA0"; // Never Gonna Give You Up - another lightweight choice
+
+// TODO: Consider implementing a dedicated audio player component for audio-only fallback
+// This would eliminate the need for YouTube iframe entirely and provide better performance
 
 // Cute messages to display when waiting for a song
 export const CUTE_MESSAGES = [

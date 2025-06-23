@@ -1666,7 +1666,13 @@ const VideoPlayer = () => {
   return (
     <div
       ref={containerRef}
-      className="relative w-screen h-screen"
+      className={`relative w-screen h-screen ${
+        videoState.currentVideoId === FALLBACK_VIDEO_ID ||
+        videoState.nowPlayingData?.video_id === FALLBACK_VIDEO_ID ||
+        (!videoState.nowPlayingData?.video_id && !currentVideoRef.current)
+          ? "fallback-audio-only"
+          : ""
+      }`}
       onClick={handleDoubleTap}
     >
       {/* CSS to hide YouTube controls and improve transitions */}
@@ -1731,6 +1737,21 @@ const VideoPlayer = () => {
           /* Force hide YouTube error overlay */
           .html5-video-player.ytp-error-content-visible .html5-video-container {
             display: none !important;
+          }
+
+          /* Hide fallback video visually but keep audio */
+          .fallback-audio-only #youtube-player,
+          .fallback-audio-only #youtube-player iframe,
+          .fallback-audio-only #youtube-player div {
+            width: 1px !important;
+            height: 1px !important;
+            opacity: 0 !important;
+            position: absolute !important;
+            top: -9999px !important;
+            left: -9999px !important;
+            overflow: hidden !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
           }
 
           /* Smooth transitions */
