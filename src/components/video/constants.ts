@@ -14,21 +14,21 @@ export const FALLBACK_VIDEO_ID = "dg1_0zCosRw";
 
 // Cute messages to display when waiting for a song
 export const CUTE_MESSAGES = [
-  "Chúc các sĩ tử thi tốt nha! Sau khi thi xong quẩy cùng Jozo nào! 🎉",
-  "Thi cử căng thẳng quá, nghỉ xíu rồi quậy tung với Jozo! 🎵",
-  "Sĩ tử ơi, học mệt rồi thì thư giãn cùng Jozo nè! 🧀",
-  "Thi xong rồi thì quẩy banh nóc cùng Jozo nha! 👀",
-  "Jozo tin bạn sẽ thi thật tốt! Chọn bài để ăn mừng thôi! 💃",
-  "Sĩ tử cố lên! Jozo đang chuẩn bị playlist quẩy tưng bừng đây! ✨",
-  "Học hành mệt mỏi, thư giãn xíu với Jozo rồi chiến tiếp! 🎶",
-  "Thi cử áp lực quá! Relax cùng Jozo một chút rồi học tiếp nha! 🥺",
-  "Sĩ tử ơi, thi tốt rồi cùng Jozo phá đảo âm nhạc nào! 🎧",
-  "Jozo chúc các sĩ tử thi thật đỉnh! Sau đó quẩy tung trời luôn! 🎉",
-  "Thi cử là tạm thời, quẩy cùng Jozo là mãi mãi! Cố lên nha! 🌟",
-  "Sĩ tử ơi, Jozo đang chuẩn bị bữa tiệc âm nhạc để ăn mừng đây! 🎸",
-  "Học xong, thi xong, là quẩy banh nóc cùng Jozo thôi! 🎪",
-  "Jozo tin bạn sẽ làm được! Chọn bài để thư giãn não bộ nào! 💫",
-  "Sĩ tử cố lên! Jozo đang đợi để cùng bạn quẩy tưng bừng sau khi thi! 💝",
+  "Chào mừng bạn đến với Jozo! Cùng tạo không gian âm nhạc thật chill nào! 🎵",
+  "Hôm nay bạn muốn nghe thể loại nhạc nào? Jozo sẽ chiều lòng bạn! 🎧",
+  "Âm nhạc là liều thuốc tuyệt vời cho tâm hồn. Cùng Jozo thư giãn nào! ✨",
+  "Jozo đang đợi bạn chọn bài để quẩy cùng đây! 🎉",
+  "Hãy để Jozo làm người bạn đồng hành âm nhạc của bạn nhé! 💫",
+  "Tâm trạng hôm nay thế nào? Để Jozo chọn nhạc phù hợp cho bạn! 🎶",
+  "Mỗi ngày một bài hát, cuộc sống sẽ tươi đẹp hơn đấy! 🌟",
+  "Cùng Jozo khám phá những giai điệu tuyệt vời nào! 🎸",
+  "Đã đến lúc thư giãn và tận hưởng âm nhạc rồi! 🎼",
+  "Hôm nay chúng ta sẽ cùng nhau tạo nên những khoảnh khắc đáng nhớ! 💝",
+  "Jozo sẵn sàng phục vụ bạn những bản nhạc hay nhất! 🎪",
+  "Âm nhạc là ngôn ngữ của tâm hồn. Hãy cùng Jozo trò chuyện nhé! 🎹",
+  "Mỗi bài hát là một câu chuyện. Hãy chia sẻ câu chuyện của bạn! 🌈",
+  "Để Jozo làm người bạn đồng hành trong thế giới âm nhạc của bạn! 🎭",
+  "Hãy cùng Jozo tạo nên những khoảnh khắc âm nhạc tuyệt vời! 💫",
 ];
 
 // Trending songs list
